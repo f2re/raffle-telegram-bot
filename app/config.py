@@ -38,9 +38,6 @@ class Settings(BaseSettings):
     MIN_WITHDRAWAL_STARS: int = 1  # Changed to 1 to allow any amount
     MIN_WITHDRAWAL_RUB: int = 100
 
-    # Test Mode Settings
-    TEST_STARS_MODE: bool = False  # Enable Telegram Stars test environment
-
     # Currency Settings
     STARS_ONLY: bool = False  # Disable RUB payments, only use Telegram Stars
 
