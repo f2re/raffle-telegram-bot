@@ -6,8 +6,12 @@ from pydantic import field_validator
 class Settings(BaseSettings):
     """Application settings"""
 
+    # Environment Configuration
+    ENV: str = "production"  # "development" or "production"
+
     # Telegram Bot Configuration
-    TELEGRAM_BOT_TOKEN: str
+    TELEGRAM_BOT_TOKEN: str  # Production bot token
+    TEST_BOT_TOKEN: Optional[str] = None  # Test environment bot token (from Telegram Test Server)
     ADMIN_USER_IDS: str  # Comma-separated list of admin user IDs
 
     # Database Configuration
@@ -37,9 +41,6 @@ class Settings(BaseSettings):
     # Withdrawal Settings
     MIN_WITHDRAWAL_STARS: int = 1  # Changed to 1 to allow any amount
     MIN_WITHDRAWAL_RUB: int = 100
-
-    # Test Mode Settings
-    TEST_STARS_MODE: bool = False  # Enable Telegram Stars test environment
 
     # Privacy Settings
     SHOW_USERNAMES: bool = True
@@ -76,6 +77,37 @@ class Settings(BaseSettings):
             True if user is admin, False otherwise
         """
         return user_id in self.get_admin_ids()
+
+    @property
+    def bot_token(self) -> str:
+        """
+        Get the appropriate bot token based on environment
+
+        Returns:
+            Test bot token if ENV=development and TEST_BOT_TOKEN is set,
+            otherwise production token
+
+        Raises:
+            ValueError: If test mode is requested but TEST_BOT_TOKEN is not set
+        """
+        if self.ENV == "development":
+            if not self.TEST_BOT_TOKEN:
+                raise ValueError(
+                    "TEST_BOT_TOKEN must be set when ENV=development. "
+                    "Create a bot in Telegram Test Server and add its token to .env"
+                )
+            return self.TEST_BOT_TOKEN
+        return self.TELEGRAM_BOT_TOKEN
+
+    @property
+    def is_test_environment(self) -> bool:
+        """
+        Check if running in test environment
+
+        Returns:
+            True if ENV=development, False otherwise
+        """
+        return self.ENV == "development"
 
 
 settings = Settings()

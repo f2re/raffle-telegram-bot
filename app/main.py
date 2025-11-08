@@ -26,10 +26,13 @@ async def on_startup(bot: Bot):
 
     # Notify admin
     try:
-        await bot.send_message(
-            settings.ADMIN_USER_ID,
-            "🤖 Бот запущен и готов к работе!"
-        )
+        admin_ids = settings.get_admin_ids()
+        if admin_ids:
+            env_msg = "🧪 TEST MODE" if settings.is_test_environment else "🚀 PRODUCTION"
+            await bot.send_message(
+                admin_ids[0],
+                f"🤖 Бот запущен и готов к работе!\n\nРежим: {env_msg}"
+            )
     except Exception as e:
         logger.warning(f"Failed to notify admin: {e}")
 
@@ -42,10 +45,12 @@ async def on_shutdown(bot: Bot):
 
     # Notify admin
     try:
-        await bot.send_message(
-            settings.ADMIN_USER_ID,
-            "🤖 Бот остановлен"
-        )
+        admin_ids = settings.get_admin_ids()
+        if admin_ids:
+            await bot.send_message(
+                admin_ids[0],
+                "🤖 Бот остановлен"
+            )
     except Exception as e:
         logger.warning(f"Failed to notify admin: {e}")
 
@@ -70,9 +75,16 @@ async def main():
 
     logger.info("Starting Telegram Raffle Bot...")
 
+    # Log environment mode
+    env_mode = "🧪 TEST" if settings.is_test_environment else "🚀 PRODUCTION"
+    logger.info(f"Environment: {env_mode}")
+    if settings.is_test_environment:
+        logger.warning("⚠️  Running in TEST mode with Telegram Test Server bot token")
+        logger.warning("⚠️  Payments will use test stars (no real money)")
+
     # Initialize bot and dispatcher
     bot = Bot(
-        token=settings.TELEGRAM_BOT_TOKEN,
+        token=settings.bot_token,  # Automatically selects test or production token
         default=DefaultBotProperties(parse_mode=ParseMode.HTML)
     )
     dp = Dispatcher(storage=MemoryStorage())

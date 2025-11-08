@@ -73,7 +73,13 @@ Stars are locked for 21 days after payment. The bot maintains a "hot reserve" of
 - **Admin approval required:** All withdrawal requests must be approved by administrators
 - **Automatic refund:** If user has recent star payments, system tries to use `refundStarPayment` API
 - **Manual gift transfer:** If automatic refund fails, admin manually sends stars as gift to user
-- **Test mode support:** `TEST_STARS_MODE` config enables testing without real money (requires test bot token)
+
+**Test Environment for Stars:**
+- Use Telegram Test Server for testing without real money
+- Create separate test bot in Test Server via @BotFather
+- Set `ENV=development` and `TEST_BOT_TOKEN` in `.env`
+- All payments in test mode are free and simulated
+- Access Test Server: iOS (tap Settings 10x), Desktop (Shift+Alt+Right-click "Add Account"), macOS (⌘+Click "Add Account")
 
 **Provable Fairness:**
 All random winner selection uses Random.org's Signed API (`generateSignedIntegers`). The signature is stored in the `raffles.random_result` field and can be publicly verified, ensuring transparency and preventing manipulation.
@@ -137,12 +143,37 @@ def get_signed_random(min_val, max_val, api_key):
 # Copy environment template
 cp .env.example .env
 
-# Edit .env with:
-# - TELEGRAM_BOT_TOKEN (from @BotFather)
-# - YOOKASSA_SHOP_ID, YOOKASSA_SECRET_KEY
+# Edit .env with required values:
+# - TELEGRAM_BOT_TOKEN (production bot from @BotFather)
+# - ADMIN_USER_IDS (your Telegram user ID)
 # - RANDOM_ORG_API_KEY
 # - DATABASE_URL, REDIS_URL
 ```
+
+**For Production:**
+```bash
+ENV=production
+TELEGRAM_BOT_TOKEN=your_production_bot_token
+```
+
+**For Testing (Test Server):**
+1. Access Telegram Test Server:
+   - **iOS**: Tap Settings icon 10 times → Accounts → Login to another account → Test
+   - **Desktop**: Settings → Shift+Alt+Right-click "Add Account" → Test Server
+   - **macOS**: Tap Settings icon 10 times → ⌘+Click "Add Account"
+
+2. Create test bot in Test Server via @BotFather
+
+3. Configure `.env`:
+```bash
+ENV=development
+TEST_BOT_TOKEN=your_test_bot_token_from_test_server
+TELEGRAM_BOT_TOKEN=your_production_token  # Still required
+```
+
+4. Bot will automatically use test token and log "🧪 TEST MODE" on startup
+
+5. All star payments in test mode are FREE and simulated
 
 ### Running Locally
 
