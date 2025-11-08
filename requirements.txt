@@ -1,0 +1,34 @@
+# Telegram Bot Framework
+aiogram
+aiohttp
+
+# Database
+sqlalchemy
+asyncpg
+alembic
+
+# Redis
+redis
+aioredis
+
+# Payment Systems
+yookassa
+
+# HTTP Requests
+requests
+
+# Environment Variables
+python-dotenv
+
+# Logging
+loguru
+
+# Date and Time
+python-dateutil
+
+# Task Queue
+celery
+
+# Validation
+pydantic
+pydantic-settings
