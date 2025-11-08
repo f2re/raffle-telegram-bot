@@ -201,7 +201,7 @@ async def process_withdrawal_amount(message: Message, state: FSMContext):
         if currency == CurrencyType.STARS:
             # For Stars, create withdrawal request immediately
             # (Stars withdrawal is handled automatically by Telegram)
-            await create_withdrawal_request(message, state, session, user)
+            await create_withdrawal_request(message, state, session, user, message.bot)
         else:
             # For RUB, ask for payment method
             await message.answer(
@@ -226,7 +226,7 @@ async def process_payment_method(message: Message, state: FSMContext):
 
         async with get_session() as session:
             user = await crud.get_user_by_telegram_id(session, message.from_user.id)
-            await create_withdrawal_request(message, state, session, user)
+            await create_withdrawal_request(message, state, session, user, message.bot)
 
     # Check if it's a phone number
     elif text.startswith("+") and text[1:].isdigit() and len(text) >= 11:
@@ -234,7 +234,7 @@ async def process_payment_method(message: Message, state: FSMContext):
 
         async with get_session() as session:
             user = await crud.get_user_by_telegram_id(session, message.from_user.id)
-            await create_withdrawal_request(message, state, session, user)
+            await create_withdrawal_request(message, state, session, user, message.bot)
 
     else:
         await message.answer(
@@ -249,7 +249,8 @@ async def create_withdrawal_request(
     message: Message,
     state: FSMContext,
     session,
-    user
+    user,
+    bot
 ):
     """Create withdrawal request in database"""
     data = await state.get_data()
@@ -317,8 +318,6 @@ async def create_withdrawal_request(
 
         # Notify admin
         from app.services.notification import NotificationService
-        from aiogram import Bot
-        bot = Bot.get_current()
         notification_service = NotificationService(bot)
 
         admin_message = (
