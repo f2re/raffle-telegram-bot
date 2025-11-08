@@ -24,14 +24,19 @@ async def on_startup(bot: Bot):
         logger.error(f"Failed to initialize database: {e}")
         sys.exit(1)
 
-    # Notify admin
-    try:
-        await bot.send_message(
-            settings.ADMIN_USER_ID,
-            "🤖 Бот запущен и готов к работе!"
-        )
-    except Exception as e:
-        logger.warning(f"Failed to notify admin: {e}")
+    # Notify admins
+    admin_ids = settings.get_admin_ids()
+    if admin_ids:
+        for admin_id in admin_ids:
+            try:
+                await bot.send_message(
+                    admin_id,
+                    "🤖 Бот запущен и готов к работе!"
+                )
+            except Exception as e:
+                logger.warning(f"Failed to notify admin {admin_id}: {e}")
+    else:
+        logger.warning("No admin IDs configured")
 
     logger.success("Bot started successfully!")
 
@@ -40,14 +45,19 @@ async def on_shutdown(bot: Bot):
     """Actions on bot shutdown"""
     logger.info("Bot is shutting down...")
 
-    # Notify admin
-    try:
-        await bot.send_message(
-            settings.ADMIN_USER_ID,
-            "🤖 Бот остановлен"
-        )
-    except Exception as e:
-        logger.warning(f"Failed to notify admin: {e}")
+    # Notify admins
+    admin_ids = settings.get_admin_ids()
+    if admin_ids:
+        for admin_id in admin_ids:
+            try:
+                await bot.send_message(
+                    admin_id,
+                    "🤖 Бот остановлен"
+                )
+            except Exception as e:
+                logger.warning(f"Failed to notify admin {admin_id}: {e}")
+    else:
+        logger.warning("No admin IDs configured")
 
     logger.info("Bot shutdown complete")
 
