@@ -46,6 +46,12 @@ class WithdrawalStatus(PyEnum):
     FAILED = "failed"
 
 
+class PayoutStatus(PyEnum):
+    PENDING = "pending"
+    COMPLETED = "completed"
+    REJECTED = "rejected"
+
+
 class User(Base):
     __tablename__ = "users"
 
@@ -164,3 +170,34 @@ class WithdrawalRequest(Base):
     # Relationships
     user = relationship("User", foreign_keys=[user_id], backref="withdrawal_requests")
     admin = relationship("User", foreign_keys=[admin_id])
+
+
+class PayoutRequest(Base):
+    """
+    Payout requests for raffle winners
+    Admin must manually pay winners via invoice link
+    """
+    __tablename__ = "payout_requests"
+
+    id = Column(Integer, primary_key=True, index=True)
+    raffle_id = Column(Integer, ForeignKey("raffles.id"), nullable=False)
+    winner_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    amount = Column(Float, nullable=False)  # Prize amount
+    currency = Column(Enum(CurrencyType), nullable=False)
+    invoice_link = Column(String(500), nullable=False)  # Invoice link for admin to pay
+    status = Column(Enum(PayoutStatus), default=PayoutStatus.PENDING)
+
+    # Admin actions
+    completed_by = Column(Integer, ForeignKey("users.id"), nullable=True)  # Admin who confirmed
+    rejection_reason = Column(Text, nullable=True)
+    rejected_by = Column(Integer, ForeignKey("users.id"), nullable=True)  # Admin who rejected
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+    completed_at = Column(DateTime, nullable=True)
+    rejected_at = Column(DateTime, nullable=True)
+
+    # Relationships
+    raffle = relationship("Raffle")
+    winner = relationship("User", foreign_keys=[winner_id])
+    completed_by_admin = relationship("User", foreign_keys=[completed_by])
+    rejected_by_admin = relationship("User", foreign_keys=[rejected_by])

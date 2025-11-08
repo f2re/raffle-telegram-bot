@@ -7,7 +7,7 @@ from loguru import logger
 
 from app.database.session import get_session
 from app.database import crud
-from app.database.models import CurrencyType, RaffleStatus, WithdrawalStatus, Transaction, TransactionStatus
+from app.database.models import CurrencyType, RaffleStatus, WithdrawalStatus, Transaction, TransactionStatus, PayoutStatus
 from app.config import settings
 from app.keyboards.inline import admin_menu, confirm_raffle_start, back_button, admin_withdrawal_keyboard
 from app.handlers.raffle import execute_raffle
@@ -819,3 +819,155 @@ async def callback_admin_reject_withdrawal(callback: CallbackQuery, state: FSMCo
         )
 
     await callback.answer()
+
+
+# ==================== PAYOUT CONFIRMATION HANDLERS ====================
+
+@router.callback_query(F.data.startswith("confirm_payout:"))
+async def callback_confirm_payout(callback: CallbackQuery):
+    """Admin confirms that they paid the winner"""
+    if not is_admin(callback.from_user.id):
+        await callback.answer("❌ Только администратор может это сделать!", show_alert=True)
+        return
+
+    # Parse raffle ID from callback data
+    raffle_id = int(callback.data.split(":")[1])
+
+    async with get_session() as session:
+        # Get payout request
+        payout = await crud.get_payout_request_by_raffle(session, raffle_id)
+
+        if not payout:
+            await callback.answer("❌ Запрос на выплату не найден!", show_alert=True)
+            return
+
+        if payout.status == PayoutStatus.COMPLETED:
+            await callback.answer("✅ Эта выплата уже подтверждена!", show_alert=True)
+            return
+
+        # Get admin user for tracking
+        admin_user = await crud.get_user_by_telegram_id(session, callback.from_user.id)
+
+        # Update payout status
+        await crud.update_payout_status(
+            session,
+            payout_id=payout.id,
+            status=PayoutStatus.COMPLETED,
+            admin_id=admin_user.id if admin_user else None,
+        )
+
+        await session.commit()
+
+        # Get winner info
+        winner = payout.winner
+        currency_symbol = "⭐" if payout.currency == CurrencyType.STARS else "₽"
+        amount_str = f"{int(payout.amount)}" if payout.currency == CurrencyType.STARS else f"{payout.amount:.2f}"
+
+    # Update admin message
+    await callback.message.edit_text(
+        f"✅ <b>ВЫПЛАТА ПОДТВЕРЖДЕНА</b>\n\n"
+        f"🏆 Розыгрыш: #{raffle_id}\n"
+        f"👤 Победитель: {winner.first_name}"
+        f"{' @' + winner.username if winner.username else ''}\n"
+        f"💰 Сумма: {amount_str} {currency_symbol}\n\n"
+        f"<b>Статус:</b> Оплачено ✅\n"
+        f"<b>Время:</b> {payout.completed_at.strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+        f"Победитель уведомлен о получении приза.",
+        parse_mode="HTML"
+    )
+    await callback.answer("✅ Выплата подтверждена!")
+
+    # Notify winner about completed payout
+    from app.services.admin_payout_service import create_admin_payout_service
+    payout_service = create_admin_payout_service(callback.bot)
+    await payout_service.notify_winner_payment_completed(
+        winner_id=winner.telegram_id,
+        amount=payout.amount,
+        raffle_id=raffle_id,
+        currency=payout.currency,
+    )
+
+    logger.info(
+        f"Payout confirmed by admin {callback.from_user.id} "
+        f"for raffle {raffle_id}, winner {winner.telegram_id}"
+    )
+
+
+@router.callback_query(F.data.startswith("reject_payout:"))
+async def callback_reject_payout(callback: CallbackQuery):
+    """Admin rejects payout (requires reason)"""
+    if not is_admin(callback.from_user.id):
+        await callback.answer("❌ Только администратор может это сделать!", show_alert=True)
+        return
+
+    # Parse raffle ID
+    raffle_id = int(callback.data.split(":")[1])
+
+    async with get_session() as session:
+        # Get payout request
+        payout = await crud.get_payout_request_by_raffle(session, raffle_id)
+
+        if not payout:
+            await callback.answer("❌ Запрос на выплату не найден!", show_alert=True)
+            return
+
+        if payout.status != PayoutStatus.PENDING:
+            await callback.answer("❌ Эта выплата уже обработана!", show_alert=True)
+            return
+
+        # Get admin user
+        admin_user = await crud.get_user_by_telegram_id(session, callback.from_user.id)
+
+        # Update status to rejected with default reason
+        await crud.update_payout_status(
+            session,
+            payout_id=payout.id,
+            status=PayoutStatus.REJECTED,
+            admin_id=admin_user.id if admin_user else None,
+            rejection_reason="Отклонено администратором",
+        )
+
+        await session.commit()
+
+        winner = payout.winner
+        currency_symbol = "⭐" if payout.currency == CurrencyType.STARS else "₽"
+        amount_str = f"{int(payout.amount)}" if payout.currency == CurrencyType.STARS else f"{payout.amount:.2f}"
+
+    # Update message
+    await callback.message.edit_text(
+        f"❌ <b>ВЫПЛАТА ОТКЛОНЕНА</b>\n\n"
+        f"🏆 Розыгрыш: #{raffle_id}\n"
+        f"👤 Победитель: {winner.first_name}"
+        f"{' @' + winner.username if winner.username else ''}\n"
+        f"💰 Сумма: {amount_str} {currency_symbol}\n\n"
+        f"<b>Статус:</b> Отклонено ❌\n"
+        f"<b>Причина:</b> Отклонено администратором\n\n"
+        f"⚠️ Необходимо повторно обработать этот платеж!",
+        parse_mode="HTML",
+        reply_markup=admin_menu()
+    )
+
+    await callback.answer("❌ Выплата отклонена")
+
+    # Notify winner
+    from app.services.notification import NotificationService
+    notification_service = NotificationService(callback.bot)
+
+    winner_message = (
+        f"⚠️ <b>Проблема с выплатой приза</b>\n\n"
+        f"Розыгрыш: #{raffle_id}\n"
+        f"Сумма: {amount_str} {currency_symbol}\n\n"
+        f"К сожалению, произошла проблема с выплатой.\n"
+        f"Администратор свяжется с вами в ближайшее время для решения вопроса.\n\n"
+        f"Приносим извинения за неудобства."
+    )
+
+    await notification_service.send_to_user(
+        winner.telegram_id,
+        winner_message
+    )
+
+    logger.warning(
+        f"Payout rejected by admin {callback.from_user.id} "
+        f"for raffle {raffle_id}, winner {winner.telegram_id}"
+    )
