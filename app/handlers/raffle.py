@@ -125,7 +125,7 @@ async def callback_current_raffle(callback: CallbackQuery):
             prize_pool = round(total_collected - commission, 2)
 
         currency_symbol = "⭐" if raffle.entry_fee_type == CurrencyType.STARS else "💳"
-        currency_name = "stars" if raffle.entry_fee_type == CurrencyType.STARS else "RUB"
+        currency_name = "⭐" if raffle.entry_fee_type == CurrencyType.STARS else "RUB"
 
         # Format amounts based on currency type
         if raffle.entry_fee_type == CurrencyType.STARS:
@@ -198,7 +198,7 @@ async def callback_raffle_refresh(callback: CallbackQuery):
             prize_pool = round(total_collected - commission, 2)
 
         currency_symbol = "⭐" if raffle.entry_fee_type == CurrencyType.STARS else "💳"
-        currency_name = "stars" if raffle.entry_fee_type == CurrencyType.STARS else "RUB"
+        currency_name = "⭐" if raffle.entry_fee_type == CurrencyType.STARS else "RUB"
 
         # Format amounts based on currency type
         if raffle.entry_fee_type == CurrencyType.STARS:
@@ -314,7 +314,7 @@ async def callback_history(callback: CallbackQuery):
                     prize_str = f"{int(raffle.prize_amount)}"
                 else:
                     prize_str = f"{raffle.prize_amount:.2f}"
-                currency_name = "stars" if raffle.entry_fee_type == CurrencyType.STARS else "RUB"
+                currency_name = "⭐" if raffle.entry_fee_type == CurrencyType.STARS else "RUB"
                 history_text += f"🏆 <b>Вы выиграли!</b> Приз: {prize_str} {currency_name}\n"
             elif raffle.status == RaffleStatus.FINISHED:
                 history_text += "Не выиграли\n"
@@ -446,7 +446,7 @@ async def execute_raffle(bot: Bot, raffle_id: int):
             notification_service = NotificationService(bot)
 
             # Winner message - updated to reflect admin payout system
-            currency_name = "stars" if raffle.entry_fee_type == CurrencyType.STARS else "RUB"
+            currency_name = "⭐" if raffle.entry_fee_type == CurrencyType.STARS else "RUB"
             currency_symbol = "⭐" if raffle.entry_fee_type == CurrencyType.STARS else "₽"
             prize_str = f"{int(prize_amount)}" if raffle.entry_fee_type == CurrencyType.STARS else f"{prize_amount:.2f}"
 

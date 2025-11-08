@@ -100,12 +100,53 @@ async def process_min_participants(message: Message, state: FSMContext):
 
         await state.update_data(min_participants=min_participants)
 
-        await message.answer(
-            f"✅ Минимум участников: {min_participants}\n\n"
-            "Теперь выберите тип валюты для взноса:\n"
-            "Отправьте 'stars' для звезд или 'rub' для рублей",
-        )
-        await state.set_state(AdminStates.waiting_for_entry_fee)
+        # In STARS_ONLY mode, skip currency selection
+        if settings.STARS_ONLY:
+            # Automatically use STARS
+            currency_type = CurrencyType.STARS
+            entry_fee = settings.STARS_ENTRY_FEE
+            commission = settings.STARS_COMMISSION_PERCENT
+
+            await state.update_data(
+                currency_type=currency_type,
+                entry_fee=entry_fee,
+                commission=commission
+            )
+
+            # Create raffle immediately
+            data = await state.get_data()
+
+            async with get_session() as session:
+                raffle = await crud.create_raffle(
+                    session,
+                    min_participants=data["min_participants"],
+                    entry_fee_type=currency_type,
+                    entry_fee_amount=entry_fee,
+                    commission_percent=commission,
+                )
+
+                await message.answer(
+                    f"✅ <b>Розыгрыш создан!</b>\n\n"
+                    f"ID: #{raffle.id}\n"
+                    f"Минимум участников: {data['min_participants']}\n"
+                    f"Взнос: {entry_fee} ⭐\n"
+                    f"Комиссия: {commission}%\n\n"
+                    f"Розыгрыш активирован и готов к приему участников!",
+                    reply_markup=admin_menu(),
+                    parse_mode="HTML"
+                )
+
+                logger.info(f"Admin created raffle #{raffle.id}")
+
+            await state.clear()
+        else:
+            # Original behavior - ask for currency
+            await message.answer(
+                f"✅ Минимум участников: {min_participants}\n\n"
+                "Теперь выберите тип валюты для взноса:\n"
+                "Отправьте 'stars' для звезд или 'rub' для рублей",
+            )
+            await state.set_state(AdminStates.waiting_for_entry_fee)
 
     except ValueError:
         await message.answer("Пожалуйста, введите число!")
@@ -149,7 +190,7 @@ async def process_entry_fee(message: Message, state: FSMContext):
             commission_percent=commission,
         )
 
-        currency_name = "stars" if currency_type == CurrencyType.STARS else "RUB"
+        currency_name = "⭐" if currency_type == CurrencyType.STARS else "RUB"
 
         await message.answer(
             f"✅ <b>Розыгрыш создан!</b>\n\n"
@@ -200,7 +241,7 @@ async def callback_admin_current_raffle(callback: CallbackQuery):
             commission = round(total_collected * (raffle.commission_percent / 100), 2)
             prize_pool = round(total_collected - commission, 2)
 
-        currency_name = "stars" if raffle.entry_fee_type == CurrencyType.STARS else "RUB"
+        currency_name = "⭐" if raffle.entry_fee_type == CurrencyType.STARS else "RUB"
 
         # Format amounts based on currency type
         if raffle.entry_fee_type == CurrencyType.STARS:

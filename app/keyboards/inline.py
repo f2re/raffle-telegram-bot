@@ -1,5 +1,6 @@
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
+from app.config import settings
 
 
 def main_menu() -> InlineKeyboardMarkup:
@@ -28,18 +29,23 @@ def payment_choice(stars_fee: int, rub_fee: int) -> InlineKeyboardMarkup:
     """Payment method selection keyboard"""
     builder = InlineKeyboardBuilder()
 
+    # Show stars payment button (always)
     builder.row(
         InlineKeyboardButton(
-            text=f"⭐ Оплатить звездами ({stars_fee} stars)",
+            text=f"⭐ Оплатить звездами ({stars_fee} ⭐)",
             callback_data="pay_stars"
         )
     )
-    builder.row(
-        InlineKeyboardButton(
-            text=f"💳 Оплатить рублями ({rub_fee} RUB)",
-            callback_data="pay_rub"
+
+    # Show RUB payment button only if not in STARS_ONLY mode
+    if not settings.STARS_ONLY:
+        builder.row(
+            InlineKeyboardButton(
+                text=f"💳 Оплатить рублями ({rub_fee} RUB)",
+                callback_data="pay_rub"
+            )
         )
-    )
+
     builder.row(
         InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_menu")
     )

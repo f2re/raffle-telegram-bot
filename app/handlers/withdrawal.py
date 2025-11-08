@@ -33,12 +33,20 @@ async def callback_balance(callback: CallbackQuery):
             await callback.answer("Ошибка: пользователь не найден")
             return
 
-        balance_text = (
-            f"<b>💰 Ваш баланс</b>\n\n"
-            f"⭐ Звезды: {int(user.balance_stars)}\n"
-            f"₽ Рубли: {round_rub_amount(user.balance_rub)}\n\n"
-            f"Для вывода средств используйте кнопку ниже"
-        )
+        # Show only stars if STARS_ONLY mode is enabled
+        if settings.STARS_ONLY:
+            balance_text = (
+                f"<b>💰 Ваш баланс</b>\n\n"
+                f"⭐ Звезды: {int(user.balance_stars)}\n\n"
+                f"Для вывода средств используйте кнопку ниже"
+            )
+        else:
+            balance_text = (
+                f"<b>💰 Ваш баланс</b>\n\n"
+                f"⭐ Звезды: {int(user.balance_stars)}\n"
+                f"₽ Рубли: {round_rub_amount(user.balance_rub)}\n\n"
+                f"Для вывода средств используйте кнопку ниже"
+            )
 
         from app.keyboards.inline import balance_keyboard
         await callback.message.edit_text(
@@ -60,29 +68,63 @@ async def callback_withdraw(callback: CallbackQuery, state: FSMContext):
             await callback.answer("Ошибка: пользователь не найден")
             return
 
-        # Check if user has any balance
-        if user.balance_stars == 0 and user.balance_rub == 0:
-            await callback.answer(
-                "У вас нет средств для вывода",
-                show_alert=True
+        # In STARS_ONLY mode, skip currency selection
+        if settings.STARS_ONLY:
+            # Check if user has stars balance
+            if user.balance_stars == 0:
+                await callback.answer(
+                    "У вас нет звезд для вывода",
+                    show_alert=True
+                )
+                return
+
+            # Store STARS as default currency
+            await state.update_data(currency=CurrencyType.STARS)
+
+            # Get minimum withdrawal amount
+            min_amount = settings.MIN_WITHDRAWAL_STARS
+
+            withdrawal_info = f"<b>💸 Вывод ⭐</b>\n\n"
+            withdrawal_info += f"Ваш баланс: {int(user.balance_stars)} ⭐\n"
+            withdrawal_info += f"Минимум для вывода: {min_amount} ⭐\n"
+            withdrawal_info += (
+                "\n⭐ <b>Умная система вывода:</b>\n"
+                "Звезды возвращаются автоматически через ваши платежи (до 21 дня)\n"
+                "Если нужно, остаток отправит администратор вручную\n"
             )
-            return
+            withdrawal_info += "\nВведите сумму для вывода:"
 
-        balance_info = ""
-        if user.balance_stars > 0:
-            balance_info += f"⭐ Звезды: {int(user.balance_stars)}\n"
-        if user.balance_rub > 0:
-            balance_info += f"₽ Рубли: {round_rub_amount(user.balance_rub)}\n"
+            await callback.message.edit_text(
+                withdrawal_info,
+                parse_mode="HTML"
+            )
 
-        await callback.message.edit_text(
-            f"<b>💸 Вывод средств</b>\n\n"
-            f"Ваш баланс:\n{balance_info}\n"
-            f"Выберите валюту для вывода:\n"
-            f"Отправьте 'stars' для звезд или 'rub' для рублей",
-            parse_mode="HTML"
-        )
+            await state.set_state(WithdrawalStates.waiting_for_amount)
+        else:
+            # Original behavior - ask for currency choice
+            # Check if user has any balance
+            if user.balance_stars == 0 and user.balance_rub == 0:
+                await callback.answer(
+                    "У вас нет средств для вывода",
+                    show_alert=True
+                )
+                return
 
-        await state.set_state(WithdrawalStates.waiting_for_currency)
+            balance_info = ""
+            if user.balance_stars > 0:
+                balance_info += f"⭐ Звезды: {int(user.balance_stars)}\n"
+            if user.balance_rub > 0:
+                balance_info += f"₽ Рубли: {round_rub_amount(user.balance_rub)}\n"
+
+            await callback.message.edit_text(
+                f"<b>💸 Вывод средств</b>\n\n"
+                f"Ваш баланс:\n{balance_info}\n"
+                f"Выберите валюту для вывода:\n"
+                f"Отправьте 'stars' для звезд или 'rub' для рублей",
+                parse_mode="HTML"
+            )
+
+            await state.set_state(WithdrawalStates.waiting_for_currency)
 
     await callback.answer()
 

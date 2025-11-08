@@ -41,6 +41,9 @@ class Settings(BaseSettings):
     # Test Mode Settings
     TEST_STARS_MODE: bool = False  # Enable Telegram Stars test environment
 
+    # Currency Settings
+    STARS_ONLY: bool = False  # Disable RUB payments, only use Telegram Stars
+
     # Privacy Settings
     SHOW_USERNAMES: bool = True
 

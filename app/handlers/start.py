@@ -6,6 +6,7 @@ from loguru import logger
 from app.database.session import get_session
 from app.database import crud
 from app.keyboards.inline import main_menu, back_button
+from app.config import settings
 
 router = Router()
 
@@ -23,12 +24,15 @@ async def cmd_start(message: Message):
         )
         logger.info(f"User {user.telegram_id} started the bot")
 
+    # Adjust message based on STARS_ONLY mode
+    payment_text = "⭐" if settings.STARS_ONLY else "звездами или рублями"
+
     welcome_text = (
         f"Привет, {message.from_user.first_name}! 👋\n\n"
         "Добро пожаловать в бот розыгрыша призов!\n\n"
         "🎁 <b>Как это работает:</b>\n"
         "1. Присоединяйся к текущему розыгрышу\n"
-        "2. Оплачиваешь взнос (звездами или рублями)\n"
+        f"2. Оплачиваешь взнос ({payment_text})\n"
         "3. Когда соберется минимальное количество участников - запускаем розыгрыш\n"
         "4. Победитель получает призовой фонд!\n\n"
         "✨ Все розыгрыши честные и проверяемые через Random.org\n"
@@ -72,11 +76,18 @@ async def cmd_balance(message: Message):
             await message.answer("Вы не зарегистрированы. Используйте /start")
             return
 
-        balance_text = (
-            f"<b>💰 Ваш баланс:</b>\n\n"
-            f"⭐ Звезды: {user.balance_stars}\n"
-            f"💳 Рубли: {user.balance_rub:.2f} RUB"
-        )
+        # Show only stars if STARS_ONLY mode is enabled
+        if settings.STARS_ONLY:
+            balance_text = (
+                f"<b>💰 Ваш баланс:</b>\n\n"
+                f"⭐ Звезды: {int(user.balance_stars)}"
+            )
+        else:
+            balance_text = (
+                f"<b>💰 Ваш баланс:</b>\n\n"
+                f"⭐ Звезды: {int(user.balance_stars)}\n"
+                f"💳 Рубли: {user.balance_rub:.2f} RUB"
+            )
 
         await message.answer(balance_text, reply_markup=back_button(), parse_mode="HTML")
 
@@ -91,11 +102,18 @@ async def callback_balance(callback: CallbackQuery):
             await callback.answer("Ошибка: пользователь не найден")
             return
 
-        balance_text = (
-            f"<b>💰 Ваш баланс:</b>\n\n"
-            f"⭐ Звезды: {user.balance_stars}\n"
-            f"💳 Рубли: {user.balance_rub:.2f} RUB"
-        )
+        # Show only stars if STARS_ONLY mode is enabled
+        if settings.STARS_ONLY:
+            balance_text = (
+                f"<b>💰 Ваш баланс:</b>\n\n"
+                f"⭐ Звезды: {int(user.balance_stars)}"
+            )
+        else:
+            balance_text = (
+                f"<b>💰 Ваш баланс:</b>\n\n"
+                f"⭐ Звезды: {int(user.balance_stars)}\n"
+                f"💳 Рубли: {user.balance_rub:.2f} RUB"
+            )
 
         await callback.message.edit_text(
             balance_text,
@@ -108,10 +126,22 @@ async def callback_balance(callback: CallbackQuery):
 @router.callback_query(F.data == "rules")
 async def callback_rules(callback: CallbackQuery):
     """Handle rules button"""
+    # Adjust rules based on STARS_ONLY mode
+    if settings.STARS_ONLY:
+        entry_fee_text = f"⭐ {settings.STARS_ENTRY_FEE} звезд"
+        payout_text = "Победитель получает приз автоматически ⭐"
+    else:
+        entry_fee_text = f"⭐ {settings.STARS_ENTRY_FEE} звезд или 💳 {settings.RUB_ENTRY_FEE} рублей"
+        payout_text = (
+            "Победитель получает приз автоматически\n"
+            "Звезды - мгновенно\n"
+            "Рубли - в течение нескольких минут"
+        )
+
     rules_text = (
         "<b>📜 Правила участия</b>\n\n"
         "<b>1. Вступительный взнос:</b>\n"
-        "⭐ 10 звезд или 💳 100 рублей\n\n"
+        f"{entry_fee_text}\n\n"
         "<b>2. Минимум участников:</b>\n"
         "Розыгрыш стартует при наборе минимального количества участников\n\n"
         "<b>3. Призовой фонд:</b>\n"
@@ -121,9 +151,7 @@ async def callback_rules(callback: CallbackQuery):
         "Случайное число генерируется через Random.org\n"
         "Результат подписан криптографически и проверяем\n\n"
         "<b>5. Выплата приза:</b>\n"
-        "Победитель получает приз автоматически\n"
-        "Звезды - мгновенно\n"
-        "Рубли - в течение нескольких минут\n\n"
+        f"{payout_text}\n\n"
         "<b>✨ Честность гарантирована!</b>\n"
         "Каждый розыгрыш можно проверить по ссылке."
     )
@@ -139,12 +167,15 @@ async def callback_rules(callback: CallbackQuery):
 @router.callback_query(F.data == "back_to_menu")
 async def callback_back_to_menu(callback: CallbackQuery):
     """Handle back to menu button"""
+    # Adjust message based on STARS_ONLY mode
+    payment_text = "⭐" if settings.STARS_ONLY else "звездами или рублями"
+
     welcome_text = (
         f"Привет, {callback.from_user.first_name}! 👋\n\n"
         "Добро пожаловать в бот розыгрыша призов!\n\n"
         "🎁 <b>Как это работает:</b>\n"
         "1. Присоединяйся к текущему розыгрышу\n"
-        "2. Оплачиваешь взнос (звездами или рублями)\n"
+        f"2. Оплачиваешь взнос ({payment_text})\n"
         "3. Когда соберется минимальное количество участников - запускаем розыгрыш\n"
         "4. Победитель получает призовой фонд!\n\n"
         "✨ Все розыгрыши честные и проверяемые через Random.org\n"
