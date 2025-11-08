@@ -115,7 +115,7 @@ class RandomOrgService:
         Returns:
             URL for verification page
         """
-        return f"https://api.random.org/signatures/form?serial={serial_number}"
+        return "https://verify.random.org/"
 
 
 # Global service instance

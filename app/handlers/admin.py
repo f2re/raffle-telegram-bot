@@ -24,7 +24,7 @@ class AdminStates(StatesGroup):
 
 def is_admin(user_id: int) -> bool:
     """Check if user is admin"""
-    return user_id == settings.ADMIN_USER_ID
+    return settings.is_admin(user_id)
 
 
 @router.message(Command("admin"))
@@ -187,20 +187,39 @@ async def callback_admin_current_raffle(callback: CallbackQuery):
         participants = await crud.get_raffle_participants(session, raffle.id)
         participants_count = len(participants)
 
+        # Calculate with accurate arithmetic
         total_collected = raffle.entry_fee_amount * participants_count
-        commission = total_collected * (raffle.commission_percent / 100)
-        prize_pool = total_collected - commission
+
+        # For stars, use integer arithmetic; for RUB, use proper rounding
+        if raffle.entry_fee_type == CurrencyType.STARS:
+            commission = int(total_collected * raffle.commission_percent / 100)
+            prize_pool = int(total_collected) - commission
+        else:
+            commission = round(total_collected * (raffle.commission_percent / 100), 2)
+            prize_pool = round(total_collected - commission, 2)
 
         currency_name = "stars" if raffle.entry_fee_type == CurrencyType.STARS else "RUB"
+
+        # Format amounts based on currency type
+        if raffle.entry_fee_type == CurrencyType.STARS:
+            entry_fee_str = f"{int(raffle.entry_fee_amount)}"
+            total_str = f"{int(total_collected)}"
+            commission_str = f"{int(commission)}"
+            prize_str = f"{int(prize_pool)}"
+        else:
+            entry_fee_str = f"{raffle.entry_fee_amount:.2f}"
+            total_str = f"{total_collected:.2f}"
+            commission_str = f"{commission:.2f}"
+            prize_str = f"{prize_pool:.2f}"
 
         raffle_text = (
             f"<b>📊 Текущий розыгрыш #{raffle.id}</b>\n\n"
             f"Статус: {raffle.status.value}\n"
             f"Участников: {participants_count}/{raffle.min_participants}\n"
-            f"Взнос: {raffle.entry_fee_amount} {currency_name}\n\n"
-            f"💰 Собрано: {total_collected:.0f} {currency_name}\n"
-            f"💸 Комиссия: {commission:.0f} {currency_name}\n"
-            f"🏆 Приз: {prize_pool:.0f} {currency_name}\n"
+            f"Взнос: {entry_fee_str} {currency_name}\n\n"
+            f"💰 Собрано: {total_str} {currency_name}\n"
+            f"💸 Комиссия: {commission_str} {currency_name}\n"
+            f"🏆 Приз: {prize_str} {currency_name}\n"
         )
 
         await callback.message.edit_text(

@@ -68,23 +68,41 @@ async def callback_current_raffle(callback: CallbackQuery):
         participants = await crud.get_raffle_participants(session, raffle.id)
         participants_count = len(participants)
 
-        # Calculate prize pool
+        # Calculate prize pool with accurate arithmetic
         total_collected = raffle.entry_fee_amount * participants_count
-        commission = total_collected * (raffle.commission_percent / 100)
-        prize_pool = total_collected - commission
+
+        # For stars, use integer arithmetic; for RUB, use proper rounding
+        if raffle.entry_fee_type == CurrencyType.STARS:
+            commission = int(total_collected * raffle.commission_percent / 100)
+            prize_pool = int(total_collected) - commission
+        else:
+            commission = round(total_collected * (raffle.commission_percent / 100), 2)
+            prize_pool = round(total_collected - commission, 2)
 
         currency_symbol = "⭐" if raffle.entry_fee_type == CurrencyType.STARS else "💳"
         currency_name = "stars" if raffle.entry_fee_type == CurrencyType.STARS else "RUB"
 
+        # Format amounts based on currency type
+        if raffle.entry_fee_type == CurrencyType.STARS:
+            entry_fee_str = f"{int(raffle.entry_fee_amount)}"
+            total_str = f"{int(total_collected)}"
+            commission_str = f"{int(commission)}"
+            prize_str = f"{int(prize_pool)}"
+        else:
+            entry_fee_str = f"{raffle.entry_fee_amount:.2f}"
+            total_str = f"{total_collected:.2f}"
+            commission_str = f"{commission:.2f}"
+            prize_str = f"{prize_pool:.2f}"
+
         raffle_text = (
             f"🎁 <b>Текущий розыгрыш #{raffle.id}</b>\n\n"
             f"Статус: {get_status_emoji(raffle.status)} {raffle.status.value}\n"
-            f"Взнос: {currency_symbol} {raffle.entry_fee_amount} {currency_name}\n"
+            f"Взнос: {currency_symbol} {entry_fee_str} {currency_name}\n"
             f"Участников: {participants_count}/{raffle.min_participants}\n\n"
             f"💰 <b>Призовой фонд:</b>\n"
-            f"Собрано: {total_collected:.0f} {currency_name}\n"
-            f"Комиссия ({raffle.commission_percent}%): {commission:.0f} {currency_name}\n"
-            f"<b>Приз победителю: {prize_pool:.0f} {currency_name}</b>\n\n"
+            f"Собрано: {total_str} {currency_name}\n"
+            f"Комиссия ({int(raffle.commission_percent)}%): {commission_str} {currency_name}\n"
+            f"<b>Приз победителю: {prize_str} {currency_name}</b>\n\n"
         )
 
         if raffle.status == RaffleStatus.PENDING:
@@ -167,7 +185,13 @@ async def callback_history(callback: CallbackQuery):
             history_text += f"{status_emoji} Розыгрыш #{raffle.id}\n"
 
             if raffle.winner_id == user.id:
-                history_text += f"🏆 <b>Вы выиграли!</b> Приз: {raffle.prize_amount:.0f}\n"
+                # Format prize based on currency type
+                if raffle.entry_fee_type == CurrencyType.STARS:
+                    prize_str = f"{int(raffle.prize_amount)}"
+                else:
+                    prize_str = f"{raffle.prize_amount:.2f}"
+                currency_name = "stars" if raffle.entry_fee_type == CurrencyType.STARS else "RUB"
+                history_text += f"🏆 <b>Вы выиграли!</b> Приз: {prize_str} {currency_name}\n"
             elif raffle.status == RaffleStatus.FINISHED:
                 history_text += "Не выиграли\n"
 
@@ -226,10 +250,16 @@ async def execute_raffle(bot: Bot, raffle_id: int):
             winner_index = random_result["random_number"] - 1  # Convert to 0-based index
             winner_participant = participants[winner_index]
 
-            # Calculate prize
+            # Calculate prize with accurate arithmetic
             total_collected = raffle.entry_fee_amount * len(participants)
-            commission = total_collected * (raffle.commission_percent / 100)
-            prize_amount = total_collected - commission
+
+            # For stars, use integer arithmetic; for RUB, use proper rounding
+            if raffle.entry_fee_type == CurrencyType.STARS:
+                commission = int(total_collected * raffle.commission_percent / 100)
+                prize_amount = int(total_collected) - commission
+            else:
+                commission = round(total_collected * (raffle.commission_percent / 100), 2)
+                prize_amount = round(total_collected - commission, 2)
 
             # Set winner
             await crud.set_raffle_winner(
@@ -276,15 +306,19 @@ async def execute_raffle(bot: Bot, raffle_id: int):
 
             # Winner message
             currency_name = "stars" if raffle.entry_fee_type == CurrencyType.STARS else "RUB"
+            prize_str = f"{int(prize_amount)}" if raffle.entry_fee_type == CurrencyType.STARS else f"{prize_amount:.2f}"
+
             winner_message = (
                 f"🎉🎉🎉 <b>ПОЗДРАВЛЯЕМ!</b> 🎉🎉🎉\n\n"
                 f"Вы выиграли в розыгрыше #{raffle_id}!\n\n"
-                f"💰 Ваш приз: {prize_amount:.0f} {currency_name}\n"
+                f"💰 Ваш приз: {prize_str} {currency_name}\n"
                 f"Средства зачислены на ваш баланс!\n\n"
                 f"Участников было: {len(participants)}\n"
                 f"Ваш номер: {winner_participant.participant_number}\n"
                 f"Выигрышное число: {random_result['random_number']}\n\n"
-                f"✨ Розыгрыш проведен честно через Random.org"
+                f"✨ Розыгрыш проведен честно через Random.org\n"
+                f"🔍 Серийный номер для проверки: <code>{random_result['serial_number']}</code>\n"
+                f"Нажмите кнопку ниже для проверки честности розыгрыша"
             )
 
             await notification_service.send_to_user(
@@ -305,8 +339,9 @@ async def execute_raffle(bot: Bot, raffle_id: int):
                 f"Номер победителя: {winner_participant.participant_number}\n"
                 f"Выигрышное число: {random_result['random_number']}\n\n"
                 f"Всего участников: {len(participants)}\n"
-                f"Приз: {prize_amount:.0f} {currency_name}\n\n"
+                f"Приз: {prize_str} {currency_name}\n\n"
                 f"✨ Результат проверяемый через Random.org\n"
+                f"🔍 Серийный номер для проверки: <code>{random_result['serial_number']}</code>\n"
                 f"Проверьте честность розыгрыша по ссылке ниже!\n\n"
                 f"Удачи в следующий раз! 🍀"
             )
