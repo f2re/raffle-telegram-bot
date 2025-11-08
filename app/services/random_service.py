@@ -1,5 +1,8 @@
 import requests
+import json
+import base64
 from typing import Dict, Any, Optional
+from urllib.parse import quote
 from loguru import logger
 
 from app.config import settings
@@ -105,17 +108,44 @@ class RandomOrgService:
         # For now, we trust that the signature exists
         return "signature" in signed_data and signed_data["signature"] is not None
 
-    def get_verification_url(self, serial_number: int) -> str:
+    def get_verification_url(self, full_response: Dict[str, Any]) -> str:
         """
         Get URL for public verification of the random number
 
         Args:
-            serial_number: Serial number from Random.org response
+            full_response: Full response from Random.org containing random object and signature
 
         Returns:
-            URL for verification page
+            URL for verification page with encoded random data and signature
         """
-        return "https://verify.random.org/"
+        try:
+            # Extract random object and signature from response
+            random_object = full_response.get("random", {})
+            signature = full_response.get("signature", "")
+
+            # Convert random object to JSON string and base64 encode it
+            random_json = json.dumps(random_object, separators=(',', ':'))
+            random_base64 = base64.b64encode(random_json.encode('utf-8')).decode('utf-8')
+
+            # URL encode the signature
+            signature_encoded = quote(signature, safe='')
+
+            # Construct verification URL
+            verification_url = (
+                f"https://api.random.org/signatures/form"
+                f"?format=json"
+                f"&random={random_base64}"
+                f"&signature={signature_encoded}"
+            )
+
+            logger.debug(f"Generated verification URL with signature length: {len(signature)}")
+
+            return verification_url
+
+        except Exception as e:
+            logger.error(f"Error generating verification URL: {e}")
+            # Fallback to simple verification page
+            return "https://api.random.org/signatures/form"
 
 
 # Global service instance

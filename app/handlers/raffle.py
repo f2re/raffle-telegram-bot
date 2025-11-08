@@ -426,7 +426,7 @@ async def execute_raffle(bot: Bot, raffle_id: int):
 
             # Get verification URL
             verification_url = random_service.get_verification_url(
-                random_result["serial_number"]
+                random_result["full_response"]
             )
 
             # Send notifications
