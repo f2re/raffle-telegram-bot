@@ -6,8 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from .models import (
-    User, Raffle, Participant, Transaction, BotSettings, WithdrawalRequest,
-    CurrencyType, RaffleStatus, TransactionType, TransactionStatus, WithdrawalStatus
+    User, Raffle, Participant, Transaction, BotSettings, WithdrawalRequest, PayoutRequest,
+    CurrencyType, RaffleStatus, TransactionType, TransactionStatus, WithdrawalStatus, PayoutStatus
 )
 
 
@@ -422,3 +422,106 @@ async def update_withdrawal_status(
 
     await session.flush()
     return withdrawal
+
+
+# ==================== PAYOUT REQUEST OPERATIONS ====================
+
+async def create_payout_request(
+    session: AsyncSession,
+    raffle_id: int,
+    winner_id: int,
+    amount: float,
+    currency: CurrencyType,
+    invoice_link: str,
+) -> PayoutRequest:
+    """Create new payout request for raffle winner"""
+    payout = PayoutRequest(
+        raffle_id=raffle_id,
+        winner_id=winner_id,
+        amount=amount,
+        currency=currency,
+        invoice_link=invoice_link,
+        status=PayoutStatus.PENDING,
+    )
+    session.add(payout)
+    await session.flush()
+    return payout
+
+
+async def get_payout_request(
+    session: AsyncSession,
+    payout_id: int,
+) -> Optional[PayoutRequest]:
+    """Get payout request by ID"""
+    result = await session.execute(
+        select(PayoutRequest)
+        .options(
+            selectinload(PayoutRequest.winner),
+            selectinload(PayoutRequest.raffle)
+        )
+        .where(PayoutRequest.id == payout_id)
+    )
+    return result.scalar_one_or_none()
+
+
+async def get_payout_request_by_raffle(
+    session: AsyncSession,
+    raffle_id: int,
+) -> Optional[PayoutRequest]:
+    """Get payout request by raffle ID"""
+    result = await session.execute(
+        select(PayoutRequest)
+        .options(
+            selectinload(PayoutRequest.winner),
+            selectinload(PayoutRequest.raffle)
+        )
+        .where(PayoutRequest.raffle_id == raffle_id)
+    )
+    return result.scalar_one_or_none()
+
+
+async def get_pending_payouts(
+    session: AsyncSession,
+    limit: int = 50,
+) -> List[PayoutRequest]:
+    """Get all pending payout requests"""
+    result = await session.execute(
+        select(PayoutRequest)
+        .options(
+            selectinload(PayoutRequest.winner),
+            selectinload(PayoutRequest.raffle)
+        )
+        .where(PayoutRequest.status == PayoutStatus.PENDING)
+        .order_by(PayoutRequest.created_at)
+        .limit(limit)
+    )
+    return list(result.scalars().all())
+
+
+async def update_payout_status(
+    session: AsyncSession,
+    payout_id: int,
+    status: PayoutStatus,
+    admin_id: Optional[int] = None,
+    rejection_reason: Optional[str] = None,
+) -> PayoutRequest:
+    """Update payout request status"""
+    payout = await session.get(PayoutRequest, payout_id)
+    if not payout:
+        raise ValueError(f"Payout request {payout_id} not found")
+
+    payout.status = status
+
+    if status == PayoutStatus.COMPLETED:
+        payout.completed_at = datetime.utcnow()
+        if admin_id:
+            payout.completed_by = admin_id
+    elif status == PayoutStatus.REJECTED:
+        payout.rejected_at = datetime.utcnow()
+        if admin_id:
+            payout.rejected_by = admin_id
+        if rejection_reason:
+            payout.rejection_reason = rejection_reason
+
+    await session.flush()
+    return payout

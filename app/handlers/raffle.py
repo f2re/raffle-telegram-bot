@@ -398,31 +398,44 @@ async def execute_raffle(bot: Bot, raffle_id: int):
                 prize_amount=prize_amount,
             )
 
-            # Update winner's balance
-            await crud.update_user_balance(
-                session,
-                user_id=winner_participant.user_id,
-                amount=prize_amount,
-                currency=raffle.entry_fee_type,
-            )
-
-            # Create win transaction
-            win_transaction = await crud.create_transaction(
-                session,
-                user_id=winner_participant.user_id,
-                type=TransactionType.RAFFLE_WIN,
-                amount=prize_amount,
-                currency=raffle.entry_fee_type,
-                description=f"Выигрыш в розыгрыше #{raffle_id}",
-                payment_metadata={"raffle_id": raffle_id}
-            )
-
-            # Mark transaction as completed
-            await crud.update_transaction_status(
-                session, win_transaction.id, TransactionStatus.COMPLETED
-            )
-
             await session.commit()
+
+            # Instead of automatically crediting balance, send payout request to admin
+            # This allows admin to pay winner via invoice link
+            from app.services.admin_payout_service import create_admin_payout_service
+
+            payout_service = create_admin_payout_service(bot)
+
+            # Get first admin ID from settings
+            admin_ids = settings.get_admin_ids()
+            if not admin_ids:
+                logger.error("No admin IDs configured for payout request!")
+                raise ValueError("No admin IDs configured")
+
+            admin_id = admin_ids[0]  # Send to first admin
+
+            # Notify winner that payout is pending
+            await payout_service.notify_winner_payment_pending(
+                winner_id=winner_participant.user.telegram_id,
+                amount=prize_amount,
+                raffle_id=raffle_id,
+                currency=raffle.entry_fee_type,
+            )
+
+            # Send payout request to admin
+            await payout_service.send_payout_request_to_admin(
+                admin_id=admin_id,
+                winner_id=winner_participant.user.telegram_id,
+                winner_username=winner_participant.user.username,
+                winner_name=winner_participant.user.first_name or "Пользователь",
+                amount=prize_amount,
+                raffle_id=raffle_id,
+                currency=raffle.entry_fee_type,
+            )
+
+            logger.info(
+                f"Payout request sent to admin {admin_id} for raffle {raffle_id}"
+            )
 
             # Get verification URL
             verification_url = random_service.get_verification_url(
@@ -432,26 +445,28 @@ async def execute_raffle(bot: Bot, raffle_id: int):
             # Send notifications
             notification_service = NotificationService(bot)
 
-            # Winner message
+            # Winner message - updated to reflect admin payout system
             currency_name = "stars" if raffle.entry_fee_type == CurrencyType.STARS else "RUB"
+            currency_symbol = "⭐" if raffle.entry_fee_type == CurrencyType.STARS else "₽"
             prize_str = f"{int(prize_amount)}" if raffle.entry_fee_type == CurrencyType.STARS else f"{prize_amount:.2f}"
 
-            winner_message = (
-                f"🎉🎉🎉 <b>ПОЗДРАВЛЯЕМ!</b> 🎉🎉🎉\n\n"
-                f"Вы выиграли в розыгрыше #{raffle_id}!\n\n"
-                f"💰 Ваш приз: {prize_str} {currency_name}\n"
-                f"Средства зачислены на ваш баланс!\n\n"
+            # Note: Winner already received notification from payout_service.notify_winner_payment_pending
+            # This is the notification for all participants about the raffle results
+
+            # Send verification link to winner separately
+            winner_verification_message = (
+                f"✨ <b>Проверка честности розыгрыша</b>\n\n"
                 f"Участников было: {len(participants)}\n"
                 f"Ваш номер: {winner_participant.participant_number}\n"
                 f"Выигрышное число: {random_result['random_number']}\n\n"
-                f"✨ Розыгрыш проведен честно через Random.org\n"
-                f"🔍 Серийный номер для проверки: <code>{random_result['serial_number']}</code>\n"
+                f"Розыгрыш проведен честно через Random.org\n"
+                f"🔍 Серийный номер: <code>{random_result['serial_number']}</code>\n"
                 f"Нажмите кнопку ниже для проверки честности розыгрыша"
             )
 
             await notification_service.send_to_user(
                 winner_participant.user.telegram_id,
-                winner_message,
+                winner_verification_message,
                 reply_markup=verification_link_keyboard(verification_url)
             )
 
