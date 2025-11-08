@@ -7,7 +7,7 @@ from loguru import logger
 
 from app.database.session import get_session
 from app.database import crud
-from app.database.models import CurrencyType, RaffleStatus, WithdrawalStatus
+from app.database.models import CurrencyType, RaffleStatus, WithdrawalStatus, Transaction, TransactionStatus
 from app.config import settings
 from app.keyboards.inline import admin_menu, confirm_raffle_start, back_button, admin_withdrawal_keyboard
 from app.handlers.raffle import execute_raffle
@@ -568,6 +568,57 @@ async def callback_admin_approve_withdrawal(callback: CallbackQuery):
 
         await session.commit()
 
+        # Handle star transfers
+        stars_sent = False
+        admin_note = ""
+
+        if withdrawal.currency == CurrencyType.STARS:
+            # Try to find a recent star payment to refund
+            from app.database.models import TransactionType
+            from sqlalchemy import select, desc
+
+            recent_star_payment = await session.execute(
+                select(Transaction)
+                .where(
+                    Transaction.user_id == user.id,
+                    Transaction.currency == CurrencyType.STARS,
+                    Transaction.type == TransactionType.RAFFLE_ENTRY,
+                    Transaction.status == TransactionStatus.COMPLETED,
+                    Transaction.payment_id.isnot(None)
+                )
+                .order_by(desc(Transaction.created_at))
+                .limit(1)
+            )
+            recent_payment = recent_star_payment.scalar_one_or_none()
+
+            if recent_payment and recent_payment.payment_id:
+                # Try to refund the payment
+                try:
+                    from app.services.stars_service import create_stars_service
+                    stars_service = create_stars_service(callback.bot)
+
+                    await stars_service.refund_star_payment(
+                        user_id=user.telegram_id,
+                        telegram_payment_charge_id=recent_payment.payment_id
+                    )
+
+                    stars_sent = True
+                    admin_note = "✅ Звезды отправлены автоматически через refund"
+                    logger.info(
+                        f"Successfully refunded {withdrawal.amount} stars to user {user.telegram_id}"
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to refund stars: {e}")
+                    admin_note = f"⚠️ Не удалось отправить автоматически. Отправьте {int(withdrawal.amount)} ⭐ вручную пользователю {user.telegram_id}"
+            else:
+                admin_note = (
+                    f"⚠️ <b>Требуется ручная отправка</b>\n"
+                    f"Отправьте {int(withdrawal.amount)} ⭐ пользователю\n"
+                    f"User ID: {user.telegram_id}"
+                )
+                if user.username:
+                    admin_note += f"\nUsername: @{user.username}"
+
         # Notify user
         from app.services.notification import NotificationService
         bot = callback.bot
@@ -580,7 +631,10 @@ async def callback_admin_approve_withdrawal(callback: CallbackQuery):
         )
 
         if withdrawal.currency == CurrencyType.STARS:
-            user_message += "⭐ Средства будут возвращены на ваш счет Telegram Stars в течение 1-3 дней."
+            if stars_sent:
+                user_message += "⭐ Звезды возвращены на ваш счет Telegram Stars!"
+            else:
+                user_message += "⭐ Звезды будут отправлены администратором в виде подарка в ближайшее время."
         else:
             user_message += "💳 Средства будут переведены на указанные реквизиты в течение 1-3 рабочих дней."
 
@@ -589,18 +643,26 @@ async def callback_admin_approve_withdrawal(callback: CallbackQuery):
             user_message
         )
 
-        await callback.message.edit_text(
+        response_text = (
             f"✅ <b>Заявка #{withdrawal.id} одобрена!</b>\n\n"
             f"Сумма {format_currency_amount(withdrawal.amount, withdrawal.currency)} "
             f"списана с баланса пользователя.\n\n"
-            f"Пользователь уведомлен.",
+        )
+
+        if admin_note:
+            response_text += f"{admin_note}\n\n"
+
+        response_text += "Пользователь уведомлен."
+
+        await callback.message.edit_text(
+            response_text,
             reply_markup=admin_menu(),
             parse_mode="HTML"
         )
 
         logger.info(
             f"Admin approved withdrawal #{withdrawal.id}, "
-            f"user_id={user.id}, amount={withdrawal.amount}"
+            f"user_id={user.id}, amount={withdrawal.amount}, stars_sent={stars_sent}"
         )
 
     await callback.answer()

@@ -82,16 +82,18 @@ def validate_withdrawal_amount(amount: float, currency: CurrencyType) -> tuple[b
     Returns:
         Tuple of (is_valid, error_message)
     """
+    if amount <= 0:
+        return False, "Сумма должна быть больше нуля"
+
     if currency == CurrencyType.STARS:
+        # Stars can be withdrawn in any amount (min 1 star)
         min_amount = settings.MIN_WITHDRAWAL_STARS
         if amount < min_amount:
             return False, f"Минимальная сумма для вывода: {min_amount} ⭐"
     else:
+        # Rubles have a minimum withdrawal amount
         min_amount = settings.MIN_WITHDRAWAL_RUB
         if amount < min_amount:
             return False, f"Минимальная сумма для вывода: {min_amount} ₽"
-
-    if amount <= 0:
-        return False, "Сумма должна быть больше нуля"
 
     return True, None
