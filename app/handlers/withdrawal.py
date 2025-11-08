@@ -131,11 +131,19 @@ async def process_withdrawal_currency(message: Message, state: FSMContext):
 
         currency_symbol = "⭐" if currency_type == CurrencyType.STARS else "₽"
 
+        withdrawal_info = f"<b>💸 Вывод {currency_symbol}</b>\n\n"
+        withdrawal_info += f"Ваш баланс: {format_currency_amount(balance, currency_type)}\n"
+
+        if currency_type == CurrencyType.STARS:
+            withdrawal_info += f"Минимум для вывода: {format_currency_amount(min_amount, currency_type)}\n"
+            withdrawal_info += "\n⭐ Звезды отправляются как подарок от администратора!\n"
+        else:
+            withdrawal_info += f"Минимум для вывода: {format_currency_amount(min_amount, currency_type)}\n"
+
+        withdrawal_info += "\nВведите сумму для вывода:"
+
         await message.answer(
-            f"<b>💸 Вывод {currency_symbol}</b>\n\n"
-            f"Ваш баланс: {format_currency_amount(balance, currency_type)}\n"
-            f"Минимум для вывода: {format_currency_amount(min_amount, currency_type)}\n\n"
-            f"Введите сумму для вывода:",
+            withdrawal_info,
             parse_mode="HTML"
         )
 
@@ -270,13 +278,29 @@ async def create_withdrawal_request(
         else:
             payment_method = "⭐ Telegram Stars"
 
-        await message.answer(
+        withdrawal_message = (
             f"✅ <b>Заявка на вывод создана!</b>\n\n"
             f"Номер заявки: #{withdrawal.id}\n"
             f"Сумма: {format_currency_amount(amount, currency)}\n"
             f"{payment_method}\n\n"
-            f"Ваша заявка отправлена на рассмотрение администратору.\n"
-            f"Вы получите уведомление после проверки.",
+        )
+
+        if currency == CurrencyType.STARS:
+            withdrawal_message += (
+                "⭐ <b>Вывод звезд</b>\n"
+                "Минимальная сумма: от 1 звезды!\n\n"
+                "После одобрения администратором звезды будут отправлены вам:\n"
+                "• Автоматически (если возможно)\n"
+                "• Или как подарок от администратора\n\n"
+            )
+
+        withdrawal_message += (
+            "Ваша заявка отправлена на рассмотрение администратору.\n"
+            "Вы получите уведомление после проверки."
+        )
+
+        await message.answer(
+            withdrawal_message,
             reply_markup=back_button(),
             parse_mode="HTML"
         )

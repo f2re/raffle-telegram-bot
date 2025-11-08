@@ -66,7 +66,14 @@ migrations/                # Alembic migrations
 ### Critical Design Decisions
 
 **Telegram Stars Reserve System:**
-Stars are locked for 21 days after payment. The bot maintains a "hot reserve" of 5000-10000 stars to enable immediate payouts to winners. After 21 days, received stars become available and replenish the reserve. Minimum withdrawal is 1000 stars.
+Stars are locked for 21 days after payment. The bot maintains a "hot reserve" of 5000-10000 stars to enable immediate payouts to winners. After 21 days, received stars become available and replenish the reserve.
+
+**Stars Withdrawal System:**
+- **Minimum withdrawal: 1 star** (no minimum limit - any amount can be withdrawn)
+- **Admin approval required:** All withdrawal requests must be approved by administrators
+- **Automatic refund:** If user has recent star payments, system tries to use `refundStarPayment` API
+- **Manual gift transfer:** If automatic refund fails, admin manually sends stars as gift to user
+- **Test mode support:** `TEST_STARS_MODE` config enables testing without real money (requires test bot token)
 
 **Provable Fairness:**
 All random winner selection uses Random.org's Signed API (`generateSignedIntegers`). The signature is stored in the `raffles.random_result` field and can be publicly verified, ensuring transparency and preventing manipulation.

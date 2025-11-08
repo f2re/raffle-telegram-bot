@@ -35,8 +35,11 @@ class Settings(BaseSettings):
     STARS_RESERVE_TARGET: int = 5000
 
     # Withdrawal Settings
-    MIN_WITHDRAWAL_STARS: int = 1000
+    MIN_WITHDRAWAL_STARS: int = 1  # Changed to 1 to allow any amount
     MIN_WITHDRAWAL_RUB: int = 100
+
+    # Test Mode Settings
+    TEST_STARS_MODE: bool = False  # Enable Telegram Stars test environment
 
     # Privacy Settings
     SHOW_USERNAMES: bool = True

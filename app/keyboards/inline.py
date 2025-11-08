@@ -7,15 +7,18 @@ def main_menu() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
 
     builder.row(
-        InlineKeyboardButton(text="Участвовать в розыгрыше", callback_data="join_raffle")
+        InlineKeyboardButton(text="🎁 Участвовать в розыгрыше", callback_data="join_raffle")
     )
     builder.row(
-        InlineKeyboardButton(text="Мой баланс", callback_data="balance"),
-        InlineKeyboardButton(text="История", callback_data="history")
+        InlineKeyboardButton(text="💰 Мой баланс", callback_data="balance"),
+        InlineKeyboardButton(text="💸 Вывод средств", callback_data="withdraw")
     )
     builder.row(
-        InlineKeyboardButton(text="Текущий розыгрыш", callback_data="current_raffle"),
-        InlineKeyboardButton(text="Правила", callback_data="rules")
+        InlineKeyboardButton(text="📊 Текущий розыгрыш", callback_data="current_raffle"),
+        InlineKeyboardButton(text="📜 История", callback_data="history")
+    )
+    builder.row(
+        InlineKeyboardButton(text="ℹ️ Правила", callback_data="rules")
     )
 
     return builder.as_markup()
