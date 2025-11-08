@@ -49,6 +49,50 @@ async def callback_join_raffle(callback: CallbackQuery):
     await callback.answer()
 
 
+@router.callback_query(F.data.startswith("join_raffle_"))
+async def callback_join_raffle_with_id(callback: CallbackQuery):
+    """Handle join raffle button with specific raffle ID"""
+    raffle_id = int(callback.data.split("_")[2])
+
+    async with get_session() as session:
+        raffle = await crud.get_raffle_by_id(session, raffle_id)
+
+        if not raffle:
+            await callback.answer(
+                "Розыгрыш не найден!",
+                show_alert=True
+            )
+            return
+
+        if raffle.status != RaffleStatus.PENDING:
+            await callback.answer(
+                "Этот розыгрыш уже завершен или отменен!",
+                show_alert=True
+            )
+            return
+
+        # Check if user already participating
+        user = await crud.get_user_by_telegram_id(session, callback.from_user.id)
+        if user:
+            participants = await crud.get_raffle_participants(session, raffle.id)
+            if any(p.user_id == user.id for p in participants):
+                await callback.answer(
+                    "Вы уже участвуете в этом розыгрыше!",
+                    show_alert=True
+                )
+                return
+
+        # Show payment options
+        await callback.message.edit_text(
+            f"<b>💫 Присоединиться к розыгрышу</b>\n\n"
+            f"Выберите способ оплаты:",
+            reply_markup=payment_choice(settings.STARS_ENTRY_FEE, settings.RUB_ENTRY_FEE),
+            parse_mode="HTML"
+        )
+
+    await callback.answer()
+
+
 @router.callback_query(F.data == "current_raffle")
 async def callback_current_raffle(callback: CallbackQuery):
     """Show current raffle information"""
@@ -125,6 +169,79 @@ async def callback_current_raffle(callback: CallbackQuery):
         )
 
     await callback.answer()
+
+
+@router.callback_query(F.data.startswith("raffle_refresh_"))
+async def callback_raffle_refresh(callback: CallbackQuery):
+    """Refresh raffle information"""
+    raffle_id = int(callback.data.split("_")[2])
+
+    async with get_session() as session:
+        raffle = await crud.get_raffle_by_id(session, raffle_id)
+
+        if not raffle:
+            await callback.answer("Розыгрыш не найден!", show_alert=True)
+            return
+
+        participants = await crud.get_raffle_participants(session, raffle.id)
+        participants_count = len(participants)
+
+        # Calculate prize pool with accurate arithmetic
+        total_collected = raffle.entry_fee_amount * participants_count
+
+        # For stars, use integer arithmetic; for RUB, use proper rounding
+        if raffle.entry_fee_type == CurrencyType.STARS:
+            commission = int(total_collected * raffle.commission_percent / 100)
+            prize_pool = int(total_collected) - commission
+        else:
+            commission = round(total_collected * (raffle.commission_percent / 100), 2)
+            prize_pool = round(total_collected - commission, 2)
+
+        currency_symbol = "⭐" if raffle.entry_fee_type == CurrencyType.STARS else "💳"
+        currency_name = "stars" if raffle.entry_fee_type == CurrencyType.STARS else "RUB"
+
+        # Format amounts based on currency type
+        if raffle.entry_fee_type == CurrencyType.STARS:
+            entry_fee_str = f"{int(raffle.entry_fee_amount)}"
+            total_str = f"{int(total_collected)}"
+            commission_str = f"{int(commission)}"
+            prize_str = f"{int(prize_pool)}"
+        else:
+            entry_fee_str = f"{raffle.entry_fee_amount:.2f}"
+            total_str = f"{total_collected:.2f}"
+            commission_str = f"{commission:.2f}"
+            prize_str = f"{prize_pool:.2f}"
+
+        raffle_text = (
+            f"🎁 <b>Текущий розыгрыш #{raffle.id}</b>\n\n"
+            f"Статус: {get_status_emoji(raffle.status)} {raffle.status.value}\n"
+            f"Взнос: {currency_symbol} {entry_fee_str} {currency_name}\n"
+            f"Участников: {participants_count}/{raffle.min_participants}\n\n"
+            f"💰 <b>Призовой фонд:</b>\n"
+            f"Собрано: {total_str} {currency_name}\n"
+            f"Комиссия ({int(raffle.commission_percent)}%): {commission_str} {currency_name}\n"
+            f"<b>Приз победителю: {prize_str} {currency_name}</b>\n\n"
+        )
+
+        if raffle.status == RaffleStatus.PENDING:
+            raffle_text += f"⏳ Ожидаем еще {raffle.min_participants - participants_count} участников"
+        elif raffle.status == RaffleStatus.ACTIVE:
+            raffle_text += "🔥 Розыгрыш активен! Скоро определим победителя!"
+        elif raffle.status == RaffleStatus.FINISHED and raffle.winner_id:
+            winner = await session.get(crud.User, raffle.winner_id)
+            # Get current user for privacy check
+            current_user = await crud.get_user_by_telegram_id(session, callback.from_user.id)
+            current_user_id = current_user.id if current_user else None
+            winner_display = format_user_display_name(winner, current_user_id)
+            raffle_text += f"🏆 Победитель: {winner_display}"
+
+        await callback.message.edit_text(
+            raffle_text,
+            reply_markup=raffle_info_keyboard(raffle.id),
+            parse_mode="HTML"
+        )
+
+    await callback.answer("Обновлено! ✅")
 
 
 @router.callback_query(F.data.startswith("raffle_participants_"))
