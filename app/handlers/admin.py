@@ -668,17 +668,23 @@ async def callback_admin_approve_withdrawal(callback: CallbackQuery):
                             admin_note += f"⚠️ <b>Требуется ручная отправка</b>\n"
 
                         admin_note += (
-                            f"Отправьте {remaining_amount} ⭐ пользователю вручную:\n"
+                            f"Нужно отправить: <b>{remaining_amount} ⭐</b>\n"
                             f"• User ID: <code>{user.telegram_id}</code>\n"
                         )
                         if user.username:
                             admin_note += f"• Username: @{user.username}\n"
 
                         admin_note += (
-                            f"\n<b>Как отправить:</b>\n"
-                            f"1. Используйте другого бота или личный аккаунт\n"
-                            f"2. Отправьте подарок на сумму {remaining_amount} ⭐\n"
-                            f"3. Или договоритесь с пользователем об альтернативе"
+                            f"\n<b>📱 КАК ОТПРАВИТЬ ЗВЕЗДЫ:</b>\n\n"
+                            f"<b>Способ 1 (Рекомендуемый):</b>\n"
+                            f"1. Откройте чат с пользователем @{user.username if user.username else f'user_id_{user.telegram_id}'}\n"
+                            f"2. Нажмите скрепку (📎) → Подарок → Telegram Stars\n"
+                            f"3. Введите {remaining_amount} звезд и отправьте\n\n"
+                            f"<b>Способ 2:</b>\n"
+                            f"Используйте другого бота для отправки звезд\n\n"
+                            f"<b>Способ 3:</b>\n"
+                            f"Договоритесь с пользователем об альтернативе (например, рубли)\n\n"
+                            f"⚠️ <b>После отправки нажмите кнопку подтверждения ниже!</b>"
                         )
 
                     logger.info(
@@ -706,17 +712,23 @@ async def callback_admin_approve_withdrawal(callback: CallbackQuery):
                 admin_note = (
                     f"⚠️ <b>Нет платежей для автоматического возврата</b>\n"
                     f"У пользователя нет платежей за последние 21 день.\n\n"
-                    f"Отправьте {remaining_amount} ⭐ вручную:\n"
+                    f"Нужно отправить: <b>{remaining_amount} ⭐</b>\n"
                     f"• User ID: <code>{user.telegram_id}</code>\n"
                 )
                 if user.username:
                     admin_note += f"• Username: @{user.username}\n"
 
                 admin_note += (
-                    f"\n<b>Способы отправки:</b>\n"
-                    f"1. Через другого бота (как подарок)\n"
-                    f"2. С личного аккаунта в Telegram\n"
-                    f"3. Предложить пользователю альтернативу (например, рубли)"
+                    f"\n<b>📱 КАК ОТПРАВИТЬ ЗВЕЗДЫ:</b>\n\n"
+                    f"<b>Способ 1 (Рекомендуемый - Личный аккаунт):</b>\n"
+                    f"1. Откройте чат с @{user.username if user.username else f'user_id_{user.telegram_id}'}\n"
+                    f"2. Нажмите скрепку (📎) → Подарок → Telegram Stars\n"
+                    f"3. Введите {remaining_amount} звезд и отправьте\n\n"
+                    f"<b>Способ 2 (Через другого бота):</b>\n"
+                    f"Используйте другого бота для создания подарка звезд\n\n"
+                    f"<b>Способ 3 (Альтернатива):</b>\n"
+                    f"Договоритесь с пользователем о переводе в рублях\n\n"
+                    f"⚠️ <b>После отправки нажмите кнопку подтверждения ниже!</b>"
                 )
 
         # Notify user
@@ -780,9 +792,43 @@ async def callback_admin_approve_withdrawal(callback: CallbackQuery):
 
         response_text += "Пользователь уведомлен."
 
+        # Create keyboard based on whether manual send is needed
+        from aiogram.utils.keyboard import InlineKeyboardBuilder
+        from aiogram.types import InlineKeyboardButton
+
+        builder = InlineKeyboardBuilder()
+
+        if withdrawal.currency == CurrencyType.STARS and remaining_amount > 0:
+            # Add confirmation button for manual star send
+            builder.row(
+                InlineKeyboardButton(
+                    text=f"✅ Я отправил {int(remaining_amount)} ⭐ вручную",
+                    callback_data=f"confirm_manual_send_{withdrawal.id}"
+                )
+            )
+            builder.row(
+                InlineKeyboardButton(
+                    text="◀️ Вернуться в меню",
+                    callback_data="admin_menu"
+                )
+            )
+            keyboard = builder.as_markup()
+        else:
+            # If fully refunded or not stars, just show menu button
+            keyboard = admin_menu()
+
+            # If fully refunded, mark as completed immediately
+            if withdrawal.currency == CurrencyType.STARS and remaining_amount == 0:
+                await crud.update_withdrawal_status(
+                    session,
+                    withdrawal_id=withdrawal.id,
+                    status=WithdrawalStatus.COMPLETED
+                )
+                await session.commit()
+
         await callback.message.edit_text(
             response_text,
-            reply_markup=admin_menu(),
+            reply_markup=keyboard,
             parse_mode="HTML"
         )
 
@@ -860,6 +906,102 @@ async def callback_admin_reject_withdrawal(callback: CallbackQuery, state: FSMCo
         )
 
     await callback.answer()
+
+
+@router.callback_query(F.data.startswith("confirm_manual_send_"))
+async def callback_confirm_manual_send(callback: CallbackQuery):
+    """Admin confirms they manually sent stars to user"""
+    if not is_admin(callback.from_user.id):
+        await callback.answer("Доступ запрещен", show_alert=True)
+        return
+
+    withdrawal_id = int(callback.data.split("_")[-1])
+
+    async with get_session() as session:
+        withdrawal = await crud.get_withdrawal_request(session, withdrawal_id)
+
+        if not withdrawal:
+            await callback.answer("Заявка не найдена", show_alert=True)
+            return
+
+        if withdrawal.status == WithdrawalStatus.COMPLETED:
+            await callback.answer("Эта заявка уже помечена как завершенная", show_alert=True)
+            return
+
+        # Get payment metadata to show what was refunded
+        metadata = withdrawal.payment_metadata or {}
+        total_refunded = metadata.get("total_refunded", 0)
+        manual_amount = int(withdrawal.amount) - total_refunded
+
+        # Update withdrawal to completed
+        await crud.update_withdrawal_status(
+            session,
+            withdrawal_id=withdrawal.id,
+            status=WithdrawalStatus.COMPLETED
+        )
+
+        # Update completed_at timestamp
+        from datetime import datetime
+        withdrawal.completed_at = datetime.utcnow()
+
+        # Update metadata to track manual send
+        if not withdrawal.payment_metadata:
+            withdrawal.payment_metadata = {}
+        withdrawal.payment_metadata["manual_send_confirmed"] = True
+        withdrawal.payment_metadata["manual_send_amount"] = manual_amount
+        withdrawal.payment_metadata["manual_send_confirmed_at"] = datetime.utcnow().isoformat()
+        withdrawal.payment_metadata["manual_send_confirmed_by"] = callback.from_user.id
+
+        await session.commit()
+
+        user = withdrawal.user
+        user_display = format_user_display_name(user, show_username=True)
+
+        # Notify user about completion
+        from app.services.notification import NotificationService
+        bot = callback.bot
+        notification_service = NotificationService(bot)
+
+        user_message = (
+            f"✅ <b>Вывод звезд завершен!</b>\n\n"
+            f"Заявка: #{withdrawal.id}\n"
+            f"Всего: {int(withdrawal.amount)} ⭐\n\n"
+        )
+
+        if total_refunded > 0:
+            user_message += (
+                f"🤖 Автоматически возвращено: {int(total_refunded)} ⭐\n"
+                f"👤 Отправлено администратором: {manual_amount} ⭐\n\n"
+            )
+        else:
+            user_message += f"👤 Отправлено администратором: {manual_amount} ⭐\n\n"
+
+        user_message += "Спасибо за использование бота!"
+
+        await notification_service.send_to_user(
+            user.telegram_id,
+            user_message
+        )
+
+        # Update admin message
+        await callback.message.edit_text(
+            f"✅ <b>Вывод завершен!</b>\n\n"
+            f"Заявка: #{withdrawal.id}\n"
+            f"Пользователь: {user_display}\n"
+            f"Сумма: {int(withdrawal.amount)} ⭐\n\n"
+            f"🤖 Автоматически: {int(total_refunded)} ⭐\n"
+            f"👤 Вручную: {manual_amount} ⭐\n\n"
+            f"Пользователь уведомлен о завершении вывода.",
+            reply_markup=admin_menu(),
+            parse_mode="HTML"
+        )
+
+        logger.info(
+            f"Admin {callback.from_user.id} confirmed manual send for withdrawal #{withdrawal.id}, "
+            f"manual_amount={manual_amount}, user_id={user.id}"
+        )
+
+    await callback.answer("✅ Ручная отправка подтверждена!")
 
 
 # ==================== PAYOUT CONFIRMATION HANDLERS ====================
