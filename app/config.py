@@ -1,5 +1,6 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from typing import Optional
+from typing import Optional, List
+from pydantic import field_validator
 
 
 class Settings(BaseSettings):
@@ -7,7 +8,7 @@ class Settings(BaseSettings):
 
     # Telegram Bot Configuration
     TELEGRAM_BOT_TOKEN: str
-    ADMIN_USER_ID: int
+    ADMIN_USER_IDS: str  # Comma-separated list of admin user IDs
 
     # Database Configuration
     DATABASE_URL: str
@@ -41,6 +42,30 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         case_sensitive=True,
     )
+
+    def get_admin_ids(self) -> List[int]:
+        """
+        Parse and return list of admin user IDs from comma-separated string
+
+        Returns:
+            List of admin user IDs as integers
+        """
+        try:
+            return [int(uid.strip()) for uid in self.ADMIN_USER_IDS.split(",") if uid.strip()]
+        except (ValueError, AttributeError):
+            return []
+
+    def is_admin(self, user_id: int) -> bool:
+        """
+        Check if user ID is in the admin list
+
+        Args:
+            user_id: Telegram user ID to check
+
+        Returns:
+            True if user is admin, False otherwise
+        """
+        return user_id in self.get_admin_ids()
 
 
 settings = Settings()

@@ -116,7 +116,7 @@ def verification_link_keyboard(verification_url: str) -> InlineKeyboardMarkup:
 
     builder.row(
         InlineKeyboardButton(
-            text="🔍 Проверить честность розыгрыша",
+            text="🔍 Проверить на Random.org",
             url=verification_url
         )
     )
