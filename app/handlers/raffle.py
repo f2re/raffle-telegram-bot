@@ -9,6 +9,7 @@ from app.config import settings
 from app.keyboards.inline import payment_choice, raffle_info_keyboard, verification_link_keyboard, back_button
 from app.services.random_service import random_service, RandomOrgError
 from app.services.notification import NotificationService
+from app.utils import format_user_display_name, round_rub_amount
 
 router = Router()
 
@@ -93,7 +94,11 @@ async def callback_current_raffle(callback: CallbackQuery):
             raffle_text += "🔥 Розыгрыш активен! Скоро определим победителя!"
         elif raffle.status == RaffleStatus.FINISHED and raffle.winner_id:
             winner = await session.get(crud.User, raffle.winner_id)
-            raffle_text += f"🏆 Победитель: {winner.first_name} (@{winner.username})"
+            # Get current user for privacy check
+            current_user = await crud.get_user_by_telegram_id(session, callback.from_user.id)
+            current_user_id = current_user.id if current_user else None
+            winner_display = format_user_display_name(winner, current_user_id)
+            raffle_text += f"🏆 Победитель: {winner_display}"
 
         await callback.message.edit_text(
             raffle_text,
@@ -118,10 +123,12 @@ async def callback_raffle_participants(callback: CallbackQuery):
 
         participants_text = f"<b>👥 Участники розыгрыша #{raffle_id}</b>\n\n"
 
+        # Get current user for privacy check
+        current_user = await crud.get_user_by_telegram_id(session, callback.from_user.id)
+        current_user_id = current_user.id if current_user else None
+
         for p in participants[:20]:  # Limit to first 20
-            user_display = p.user.first_name
-            if p.user.username:
-                user_display += f" (@{p.user.username})"
+            user_display = format_user_display_name(p.user, current_user_id)
             participants_text += f"{p.participant_number}. {user_display}\n"
 
         if len(participants) > 20:
@@ -230,6 +237,10 @@ async def execute_raffle(bot: Bot, raffle_id: int):
             total_collected = raffle.entry_fee_amount * len(participants)
             commission = total_collected * (raffle.commission_percent / 100)
             prize_amount = total_collected - commission
+
+            # Round to whole rubles if currency is RUB
+            if raffle.entry_fee_type == CurrencyType.RUB:
+                prize_amount = round_rub_amount(prize_amount)
 
             # Set winner
             await crud.set_raffle_winner(

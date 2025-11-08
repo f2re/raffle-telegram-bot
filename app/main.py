@@ -9,7 +9,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 
 from app.config import settings
 from app.database.session import init_db
-from app.handlers import start, payment, raffle, admin
+from app.handlers import start, payment, raffle, admin, withdrawal
 
 
 async def on_startup(bot: Bot):
@@ -81,6 +81,7 @@ async def main():
     dp.include_router(start.router)
     dp.include_router(payment.router)
     dp.include_router(raffle.router)
+    dp.include_router(withdrawal.router)
     dp.include_router(admin.router)
 
     # Register startup/shutdown handlers

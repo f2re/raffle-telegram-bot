@@ -6,8 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from .models import (
-    User, Raffle, Participant, Transaction, BotSettings,
-    CurrencyType, RaffleStatus, TransactionType, TransactionStatus
+    User, Raffle, Participant, Transaction, BotSettings, WithdrawalRequest,
+    CurrencyType, RaffleStatus, TransactionType, TransactionStatus, WithdrawalStatus
 )
 
 
@@ -322,3 +322,103 @@ async def set_setting(
 
     await session.flush()
     return setting
+
+
+# ==================== WITHDRAWAL OPERATIONS ====================
+
+async def create_withdrawal_request(
+    session: AsyncSession,
+    user_id: int,
+    amount: float,
+    currency: CurrencyType,
+    card_number: Optional[str] = None,
+    phone_number: Optional[str] = None,
+) -> WithdrawalRequest:
+    """Create new withdrawal request"""
+    withdrawal = WithdrawalRequest(
+        user_id=user_id,
+        amount=amount,
+        currency=currency,
+        card_number=card_number,
+        phone_number=phone_number,
+        status=WithdrawalStatus.PENDING,
+    )
+    session.add(withdrawal)
+    await session.flush()
+    return withdrawal
+
+
+async def get_withdrawal_request(
+    session: AsyncSession,
+    withdrawal_id: int,
+) -> Optional[WithdrawalRequest]:
+    """Get withdrawal request by ID"""
+    result = await session.execute(
+        select(WithdrawalRequest)
+        .options(selectinload(WithdrawalRequest.user))
+        .where(WithdrawalRequest.id == withdrawal_id)
+    )
+    return result.scalar_one_or_none()
+
+
+async def get_pending_withdrawals(
+    session: AsyncSession,
+    limit: int = 50,
+) -> List[WithdrawalRequest]:
+    """Get all pending withdrawal requests"""
+    result = await session.execute(
+        select(WithdrawalRequest)
+        .options(selectinload(WithdrawalRequest.user))
+        .where(WithdrawalRequest.status == WithdrawalStatus.PENDING)
+        .order_by(WithdrawalRequest.created_at)
+        .limit(limit)
+    )
+    return list(result.scalars().all())
+
+
+async def get_user_withdrawals(
+    session: AsyncSession,
+    user_id: int,
+    limit: int = 10,
+) -> List[WithdrawalRequest]:
+    """Get user's withdrawal history"""
+    result = await session.execute(
+        select(WithdrawalRequest)
+        .where(WithdrawalRequest.user_id == user_id)
+        .order_by(WithdrawalRequest.created_at.desc())
+        .limit(limit)
+    )
+    return list(result.scalars().all())
+
+
+async def update_withdrawal_status(
+    session: AsyncSession,
+    withdrawal_id: int,
+    status: WithdrawalStatus,
+    admin_id: Optional[int] = None,
+    rejection_reason: Optional[str] = None,
+    payment_id: Optional[str] = None,
+) -> WithdrawalRequest:
+    """Update withdrawal request status"""
+    withdrawal = await session.get(WithdrawalRequest, withdrawal_id)
+    if not withdrawal:
+        raise ValueError(f"Withdrawal request {withdrawal_id} not found")
+
+    withdrawal.status = status
+
+    if admin_id:
+        withdrawal.admin_id = admin_id
+
+    if rejection_reason:
+        withdrawal.rejection_reason = rejection_reason
+
+    if payment_id:
+        withdrawal.payment_id = payment_id
+
+    if status == WithdrawalStatus.APPROVED:
+        withdrawal.processed_at = datetime.utcnow()
+    elif status in [WithdrawalStatus.COMPLETED, WithdrawalStatus.FAILED]:
+        withdrawal.completed_at = datetime.utcnow()
+
+    await session.flush()
+    return withdrawal

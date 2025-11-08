@@ -37,6 +37,15 @@ class TransactionStatus(PyEnum):
     CANCELLED = "cancelled"
 
 
+class WithdrawalStatus(PyEnum):
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    PROCESSING = "processing"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
 class User(Base):
     __tablename__ = "users"
 
@@ -125,3 +134,33 @@ class BotSettings(Base):
     description = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class WithdrawalRequest(Base):
+    __tablename__ = "withdrawal_requests"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    amount = Column(Float, nullable=False)
+    currency = Column(Enum(CurrencyType), nullable=False)
+    status = Column(Enum(WithdrawalStatus), default=WithdrawalStatus.PENDING)
+
+    # Payment details (for RUB withdrawals)
+    card_number = Column(String, nullable=True)  # Bank card number
+    phone_number = Column(String, nullable=True)  # Phone for SBP
+
+    # Admin actions
+    admin_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    rejection_reason = Column(Text, nullable=True)
+
+    # Payment tracking
+    payment_id = Column(String, nullable=True)  # YooKassa payout ID or Telegram payment ID
+    payment_metadata = Column(JSON, nullable=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+    processed_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+
+    # Relationships
+    user = relationship("User", foreign_keys=[user_id], backref="withdrawal_requests")
+    admin = relationship("User", foreign_keys=[admin_id])
