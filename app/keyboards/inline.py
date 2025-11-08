@@ -60,6 +60,9 @@ def admin_menu() -> InlineKeyboardMarkup:
         InlineKeyboardButton(text="Запустить розыгрыш", callback_data="admin_start_raffle")
     )
     builder.row(
+        InlineKeyboardButton(text="💸 Заявки на вывод", callback_data="admin_withdrawals")
+    )
+    builder.row(
         InlineKeyboardButton(text="Настройки", callback_data="admin_settings")
     )
     builder.row(
@@ -122,6 +125,44 @@ def verification_link_keyboard(verification_url: str) -> InlineKeyboardMarkup:
     )
     builder.row(
         InlineKeyboardButton(text="◀️ В меню", callback_data="back_to_menu")
+    )
+
+    return builder.as_markup()
+
+
+def balance_keyboard() -> InlineKeyboardMarkup:
+    """Keyboard for balance screen"""
+    builder = InlineKeyboardBuilder()
+
+    builder.row(
+        InlineKeyboardButton(text="💸 Вывести средства", callback_data="withdraw")
+    )
+    builder.row(
+        InlineKeyboardButton(text="📜 История выводов", callback_data="my_withdrawals")
+    )
+    builder.row(
+        InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_menu")
+    )
+
+    return builder.as_markup()
+
+
+def admin_withdrawal_keyboard(withdrawal_id: int) -> InlineKeyboardMarkup:
+    """Keyboard for admin withdrawal approval"""
+    builder = InlineKeyboardBuilder()
+
+    builder.row(
+        InlineKeyboardButton(
+            text="✅ Одобрить",
+            callback_data=f"admin_approve_withdrawal_{withdrawal_id}"
+        ),
+        InlineKeyboardButton(
+            text="❌ Отклонить",
+            callback_data=f"admin_reject_withdrawal_{withdrawal_id}"
+        )
+    )
+    builder.row(
+        InlineKeyboardButton(text="◀️ Назад", callback_data="admin_withdrawals")
     )
 
     return builder.as_markup()

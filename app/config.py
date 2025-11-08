@@ -34,6 +34,13 @@ class Settings(BaseSettings):
     STARS_RESERVE_MIN: int = 3000
     STARS_RESERVE_TARGET: int = 5000
 
+    # Withdrawal Settings
+    MIN_WITHDRAWAL_STARS: int = 1000
+    MIN_WITHDRAWAL_RUB: int = 100
+
+    # Privacy Settings
+    SHOW_USERNAMES: bool = True
+
     # Logging
     LOG_LEVEL: str = "INFO"
 

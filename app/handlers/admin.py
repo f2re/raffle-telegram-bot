@@ -7,10 +7,12 @@ from loguru import logger
 
 from app.database.session import get_session
 from app.database import crud
-from app.database.models import CurrencyType, RaffleStatus
+from app.database.models import CurrencyType, RaffleStatus, WithdrawalStatus
 from app.config import settings
-from app.keyboards.inline import admin_menu, confirm_raffle_start, back_button
+from app.keyboards.inline import admin_menu, confirm_raffle_start, back_button, admin_withdrawal_keyboard
 from app.handlers.raffle import execute_raffle
+from app.utils import format_currency_amount, format_user_display_name
+from app.services.payment_service import yookassa_service, PaymentError
 
 router = Router()
 
@@ -377,6 +379,7 @@ async def callback_admin_settings(callback: CallbackQuery):
         f"💳 Взнос (RUB): {settings.RUB_ENTRY_FEE}\n"
         f"💳 Комиссия (RUB): {settings.RUB_COMMISSION_PERCENT}%\n\n"
         f"👥 Минимум участников: {settings.MIN_PARTICIPANTS}\n\n"
+        f"🔒 Показывать username: {settings.SHOW_USERNAMES}\n\n"
         f"Для изменения настроек отредактируйте .env файл"
     )
 
@@ -385,5 +388,286 @@ async def callback_admin_settings(callback: CallbackQuery):
         reply_markup=admin_menu(),
         parse_mode="HTML"
     )
+
+    await callback.answer()
+
+
+@router.callback_query(F.data == "admin_withdrawals")
+async def callback_admin_withdrawals(callback: CallbackQuery):
+    """Show pending withdrawal requests"""
+    if not is_admin(callback.from_user.id):
+        await callback.answer("Доступ запрещен", show_alert=True)
+        return
+
+    async with get_session() as session:
+        pending_withdrawals = await crud.get_pending_withdrawals(session, limit=10)
+
+        if not pending_withdrawals:
+            await callback.message.edit_text(
+                "<b>💸 Заявки на вывод</b>\n\n"
+                "Нет ожидающих заявок",
+                reply_markup=admin_menu(),
+                parse_mode="HTML"
+            )
+            await callback.answer()
+            return
+
+        withdrawals_text = "<b>💸 Заявки на вывод (ожидают)</b>\n\n"
+
+        for w in pending_withdrawals[:5]:  # Show first 5
+            user_display = format_user_display_name(w.user, show_username=True)
+
+            withdrawals_text += f"ID: #{w.id}\n"
+            withdrawals_text += f"Пользователь: {user_display}\n"
+            withdrawals_text += f"Сумма: {format_currency_amount(w.amount, w.currency)}\n"
+
+            # Show payment details
+            if w.card_number:
+                masked_card = f"**** **** **** {w.card_number[-4:]}"
+                withdrawals_text += f"💳 Карта: {masked_card}\n"
+            elif w.phone_number:
+                withdrawals_text += f"📱 Телефон: {w.phone_number}\n"
+            else:
+                withdrawals_text += "⭐ Telegram Stars\n"
+
+            withdrawals_text += f"Дата: {w.created_at.strftime('%d.%m.%Y %H:%M')}\n\n"
+
+        if len(pending_withdrawals) > 5:
+            withdrawals_text += f"... и еще {len(pending_withdrawals) - 5} заявок\n\n"
+
+        withdrawals_text += "Нажмите ID заявки для просмотра деталей"
+
+        # Create keyboard with withdrawal IDs
+        from aiogram.utils.keyboard import InlineKeyboardBuilder
+        from aiogram.types import InlineKeyboardButton
+
+        builder = InlineKeyboardBuilder()
+
+        for w in pending_withdrawals[:5]:
+            builder.row(
+                InlineKeyboardButton(
+                    text=f"Заявка #{w.id}",
+                    callback_data=f"admin_view_withdrawal_{w.id}"
+                )
+            )
+
+        builder.row(
+            InlineKeyboardButton(text="◀️ Назад", callback_data="admin_menu")
+        )
+
+        await callback.message.edit_text(
+            withdrawals_text,
+            reply_markup=builder.as_markup(),
+            parse_mode="HTML"
+        )
+
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("admin_view_withdrawal_"))
+async def callback_admin_view_withdrawal(callback: CallbackQuery):
+    """View specific withdrawal request"""
+    if not is_admin(callback.from_user.id):
+        await callback.answer("Доступ запрещен", show_alert=True)
+        return
+
+    withdrawal_id = int(callback.data.split("_")[-1])
+
+    async with get_session() as session:
+        withdrawal = await crud.get_withdrawal_request(session, withdrawal_id)
+
+        if not withdrawal:
+            await callback.answer("Заявка не найдена", show_alert=True)
+            return
+
+        user_display = format_user_display_name(withdrawal.user, show_username=True)
+
+        withdrawal_text = f"<b>💸 Заявка на вывод #{withdrawal.id}</b>\n\n"
+        withdrawal_text += f"Пользователь: {user_display}\n"
+        withdrawal_text += f"User ID: {withdrawal.user.telegram_id}\n"
+        withdrawal_text += f"Сумма: {format_currency_amount(withdrawal.amount, withdrawal.currency)}\n"
+        withdrawal_text += f"Статус: {withdrawal.status.value}\n\n"
+
+        # Show payment details
+        if withdrawal.card_number:
+            withdrawal_text += f"💳 <b>Карта:</b> {withdrawal.card_number}\n"
+        elif withdrawal.phone_number:
+            withdrawal_text += f"📱 <b>Телефон:</b> {withdrawal.phone_number}\n"
+        else:
+            withdrawal_text += "⭐ <b>Telegram Stars</b>\n"
+
+        withdrawal_text += f"\nДата создания: {withdrawal.created_at.strftime('%d.%m.%Y %H:%M')}"
+
+        # Show current balance
+        user = withdrawal.user
+        if withdrawal.currency == CurrencyType.STARS:
+            withdrawal_text += f"\n\nТекущий баланс: {int(user.balance_stars)} ⭐"
+        else:
+            withdrawal_text += f"\n\nТекущий баланс: {int(user.balance_rub)} ₽"
+
+        await callback.message.edit_text(
+            withdrawal_text,
+            reply_markup=admin_withdrawal_keyboard(withdrawal.id),
+            parse_mode="HTML"
+        )
+
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("admin_approve_withdrawal_"))
+async def callback_admin_approve_withdrawal(callback: CallbackQuery):
+    """Approve withdrawal request"""
+    if not is_admin(callback.from_user.id):
+        await callback.answer("Доступ запрещен", show_alert=True)
+        return
+
+    withdrawal_id = int(callback.data.split("_")[-1])
+
+    async with get_session() as session:
+        withdrawal = await crud.get_withdrawal_request(session, withdrawal_id)
+
+        if not withdrawal:
+            await callback.answer("Заявка не найдена", show_alert=True)
+            return
+
+        if withdrawal.status != WithdrawalStatus.PENDING:
+            await callback.answer("Заявка уже обработана", show_alert=True)
+            return
+
+        # Check user balance
+        user = withdrawal.user
+        balance = user.balance_stars if withdrawal.currency == CurrencyType.STARS else user.balance_rub
+
+        if withdrawal.amount > balance:
+            await callback.answer(
+                f"Ошибка: недостаточно средств у пользователя!\n"
+                f"Запрошено: {withdrawal.amount}, Баланс: {balance}",
+                show_alert=True
+            )
+            return
+
+        # Get admin user for admin_id
+        admin_user = await crud.get_user_by_telegram_id(session, callback.from_user.id)
+
+        # Update withdrawal status
+        await crud.update_withdrawal_status(
+            session,
+            withdrawal_id=withdrawal.id,
+            status=WithdrawalStatus.APPROVED,
+            admin_id=admin_user.id if admin_user else None
+        )
+
+        # Deduct from user balance
+        deduct_amount = -withdrawal.amount
+        await crud.update_user_balance(
+            session,
+            user_id=user.id,
+            amount=deduct_amount,
+            currency=withdrawal.currency
+        )
+
+        await session.commit()
+
+        # Notify user
+        from app.services.notification import NotificationService
+        bot = callback.bot
+        notification_service = NotificationService(bot)
+
+        user_message = (
+            f"✅ <b>Заявка на вывод одобрена!</b>\n\n"
+            f"Номер заявки: #{withdrawal.id}\n"
+            f"Сумма: {format_currency_amount(withdrawal.amount, withdrawal.currency)}\n\n"
+        )
+
+        if withdrawal.currency == CurrencyType.STARS:
+            user_message += "⭐ Средства будут возвращены на ваш счет Telegram Stars в течение 1-3 дней."
+        else:
+            user_message += "💳 Средства будут переведены на указанные реквизиты в течение 1-3 рабочих дней."
+
+        await notification_service.send_to_user(
+            user.telegram_id,
+            user_message
+        )
+
+        await callback.message.edit_text(
+            f"✅ <b>Заявка #{withdrawal.id} одобрена!</b>\n\n"
+            f"Сумма {format_currency_amount(withdrawal.amount, withdrawal.currency)} "
+            f"списана с баланса пользователя.\n\n"
+            f"Пользователь уведомлен.",
+            reply_markup=admin_menu(),
+            parse_mode="HTML"
+        )
+
+        logger.info(
+            f"Admin approved withdrawal #{withdrawal.id}, "
+            f"user_id={user.id}, amount={withdrawal.amount}"
+        )
+
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("admin_reject_withdrawal_"))
+async def callback_admin_reject_withdrawal(callback: CallbackQuery, state: FSMContext):
+    """Reject withdrawal request"""
+    if not is_admin(callback.from_user.id):
+        await callback.answer("Доступ запрещен", show_alert=True)
+        return
+
+    withdrawal_id = int(callback.data.split("_")[-1])
+
+    async with get_session() as session:
+        withdrawal = await crud.get_withdrawal_request(session, withdrawal_id)
+
+        if not withdrawal:
+            await callback.answer("Заявка не найдена", show_alert=True)
+            return
+
+        if withdrawal.status != WithdrawalStatus.PENDING:
+            await callback.answer("Заявка уже обработана", show_alert=True)
+            return
+
+        # Get admin user for admin_id
+        admin_user = await crud.get_user_by_telegram_id(session, callback.from_user.id)
+
+        # Update withdrawal status
+        await crud.update_withdrawal_status(
+            session,
+            withdrawal_id=withdrawal.id,
+            status=WithdrawalStatus.REJECTED,
+            admin_id=admin_user.id if admin_user else None,
+            rejection_reason="Отклонено администратором"
+        )
+
+        await session.commit()
+
+        # Notify user
+        from app.services.notification import NotificationService
+        bot = callback.bot
+        notification_service = NotificationService(bot)
+
+        user = withdrawal.user
+        user_message = (
+            f"❌ <b>Заявка на вывод отклонена</b>\n\n"
+            f"Номер заявки: #{withdrawal.id}\n"
+            f"Сумма: {format_currency_amount(withdrawal.amount, withdrawal.currency)}\n\n"
+            f"Причина: Отклонено администратором\n\n"
+            f"Средства остались на вашем балансе."
+        )
+
+        await notification_service.send_to_user(
+            user.telegram_id,
+            user_message
+        )
+
+        await callback.message.edit_text(
+            f"❌ <b>Заявка #{withdrawal.id} отклонена</b>\n\n"
+            f"Пользователь уведомлен.",
+            reply_markup=admin_menu(),
+            parse_mode="HTML"
+        )
+
+        logger.info(
+            f"Admin rejected withdrawal #{withdrawal.id}, user_id={user.id}"
+        )
 
     await callback.answer()
