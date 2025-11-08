@@ -68,11 +68,20 @@ migrations/                # Alembic migrations
 **Telegram Stars Reserve System:**
 Stars are locked for 21 days after payment. The bot maintains a "hot reserve" of 5000-10000 stars to enable immediate payouts to winners. After 21 days, received stars become available and replenish the reserve.
 
-**Stars Withdrawal System:**
+**Stars Withdrawal System (Improved Multi-Refund Logic):**
 - **Minimum withdrawal: 1 star** (no minimum limit - any amount can be withdrawn)
 - **Admin approval required:** All withdrawal requests must be approved by administrators
-- **Automatic refund:** If user has recent star payments, system tries to use `refundStarPayment` API
-- **Manual gift transfer:** If automatic refund fails, admin manually sends stars as gift to user
+- **Smart multi-refund system:**
+  - System automatically searches ALL user's star payments within 21-day refund window
+  - Attempts multiple `refundStarPayment` calls to cover full withdrawal amount
+  - Refunds are processed in order from newest to oldest for maximum success rate
+  - Important: Telegram API only allows full payment refunds (no partial refunds of single transaction)
+  - If withdrawal amount can't be fully covered by refunds, admin receives detailed instructions
+- **Guaranteed payout:**
+  - Automatically refunded amount is instantly returned to user's Telegram Stars balance
+  - Remaining amount (if any) must be sent manually by admin via gift from another bot/account
+  - Users receive detailed notification showing auto-refunded and manual amounts
+- **Metadata tracking:** All refund details stored in `withdrawal_requests.payment_metadata` for auditing
 - **Test mode support:** `TEST_STARS_MODE` config enables testing without real money (requires test bot token)
 
 **Provable Fairness:**
