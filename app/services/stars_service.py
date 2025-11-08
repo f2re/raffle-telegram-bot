@@ -1,5 +1,6 @@
 """Service for Telegram Stars operations"""
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
+from datetime import datetime, timedelta
 from aiogram import Bot
 from aiogram.types import LabeledPrice
 from loguru import logger
@@ -17,6 +18,8 @@ class StarsService:
 
     def __init__(self, bot: Bot):
         self.bot = bot
+        # Telegram allows refunds within 21 days
+        self.REFUND_WINDOW_DAYS = 21
 
     async def send_star_gift(
         self,
@@ -174,6 +177,130 @@ class StarsService:
         # Telegram Stars use "XTR" in both test and production environments
         # The test mode is determined by the bot token used, not the currency code
         return "XTR"
+
+    async def process_withdrawal_with_multiple_refunds(
+        self,
+        user_id: int,
+        telegram_id: int,
+        withdrawal_amount: int,
+        transactions: List[Any]
+    ) -> Dict[str, Any]:
+        """
+        Process star withdrawal using multiple refund attempts
+
+        This method tries to refund stars from multiple recent payments to cover
+        the full withdrawal amount. This is the ONLY official way to return stars
+        to users according to Telegram Bot API.
+
+        Args:
+            user_id: Internal user ID
+            telegram_id: Telegram user ID
+            withdrawal_amount: Total amount of stars to withdraw
+            transactions: List of user's recent star transactions with payment_id
+
+        Returns:
+            Dictionary with:
+                - total_refunded: Amount successfully refunded
+                - remaining: Amount that couldn't be refunded
+                - successful_refunds: List of successful refund details
+                - failed_refunds: List of failed refund details
+        """
+        total_refunded = 0
+        remaining = withdrawal_amount
+        successful_refunds = []
+        failed_refunds = []
+
+        # Filter transactions that are eligible for refund:
+        # 1. Must have payment_id (telegram_payment_charge_id)
+        # 2. Must be within 21-day refund window
+        # 3. Must be completed star payments
+        cutoff_date = datetime.utcnow() - timedelta(days=self.REFUND_WINDOW_DAYS)
+
+        eligible_transactions = []
+        for tx in transactions:
+            if (tx.payment_id and
+                tx.created_at >= cutoff_date and
+                tx.amount > 0):
+                eligible_transactions.append(tx)
+
+        logger.info(
+            f"Processing withdrawal for user {telegram_id}: "
+            f"requested={withdrawal_amount}, "
+            f"eligible_transactions={len(eligible_transactions)}"
+        )
+
+        # Sort transactions by date (newest first) to maximize refund success
+        eligible_transactions.sort(key=lambda x: x.created_at, reverse=True)
+
+        # Try to refund from each eligible transaction
+        for tx in eligible_transactions:
+            if remaining <= 0:
+                break
+
+            # Amount to refund from this transaction
+            # Note: We can only refund up to the original transaction amount
+            refund_amount = min(remaining, int(tx.amount))
+
+            try:
+                # Important: Telegram's refundStarPayment refunds the FULL original payment
+                # We cannot do partial refunds of a single payment
+                # So we can only use this if the transaction amount <= remaining amount
+                if tx.amount <= remaining:
+                    result = await self.refund_star_payment(
+                        user_id=telegram_id,
+                        telegram_payment_charge_id=tx.payment_id
+                    )
+
+                    refunded_amount = int(tx.amount)
+                    total_refunded += refunded_amount
+                    remaining -= refunded_amount
+
+                    successful_refunds.append({
+                        "transaction_id": tx.id,
+                        "payment_id": tx.payment_id,
+                        "amount": refunded_amount,
+                        "created_at": tx.created_at.isoformat()
+                    })
+
+                    logger.info(
+                        f"Successfully refunded {refunded_amount} stars "
+                        f"from transaction {tx.id} (payment_id: {tx.payment_id})"
+                    )
+                else:
+                    # Skip this transaction as it's larger than remaining amount
+                    # and we can't do partial refunds
+                    logger.debug(
+                        f"Skipping transaction {tx.id}: amount ({tx.amount}) > "
+                        f"remaining ({remaining}), partial refunds not supported"
+                    )
+
+            except Exception as e:
+                logger.warning(
+                    f"Failed to refund transaction {tx.id} "
+                    f"(payment_id: {tx.payment_id}): {e}"
+                )
+                failed_refunds.append({
+                    "transaction_id": tx.id,
+                    "payment_id": tx.payment_id,
+                    "amount": int(tx.amount),
+                    "error": str(e)
+                })
+
+        result = {
+            "total_refunded": total_refunded,
+            "remaining": remaining,
+            "successful_refunds": successful_refunds,
+            "failed_refunds": failed_refunds,
+            "refund_rate": (total_refunded / withdrawal_amount * 100) if withdrawal_amount > 0 else 0
+        }
+
+        logger.info(
+            f"Withdrawal processing complete for user {telegram_id}: "
+            f"refunded={total_refunded}/{withdrawal_amount} stars "
+            f"({result['refund_rate']:.1f}%), remaining={remaining}"
+        )
+
+        return result
 
 
 def create_stars_service(bot: Bot) -> StarsService:

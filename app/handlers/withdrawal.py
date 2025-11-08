@@ -136,7 +136,11 @@ async def process_withdrawal_currency(message: Message, state: FSMContext):
 
         if currency_type == CurrencyType.STARS:
             withdrawal_info += f"Минимум для вывода: {format_currency_amount(min_amount, currency_type)}\n"
-            withdrawal_info += "\n⭐ Звезды отправляются как подарок от администратора!\n"
+            withdrawal_info += (
+                "\n⭐ <b>Умная система вывода:</b>\n"
+                "Звезды возвращаются автоматически через ваши платежи (до 21 дня)\n"
+                "Если нужно, остаток отправит администратор вручную\n"
+            )
         else:
             withdrawal_info += f"Минимум для вывода: {format_currency_amount(min_amount, currency_type)}\n"
 
@@ -289,9 +293,10 @@ async def create_withdrawal_request(
             withdrawal_message += (
                 "⭐ <b>Вывод звезд</b>\n"
                 "Минимальная сумма: от 1 звезды!\n\n"
-                "После одобрения администратором звезды будут отправлены вам:\n"
-                "• Автоматически (если возможно)\n"
-                "• Или как подарок от администратора\n\n"
+                "После одобрения администратором:\n"
+                "• Система попытается автоматически вернуть звезды через ваши недавние платежи (до 21 дня)\n"
+                "• Если полный автоматический возврат невозможен, остаток будет отправлен администратором вручную\n"
+                "• Вы получите уведомление с деталями возврата\n\n"
             )
 
         withdrawal_message += (

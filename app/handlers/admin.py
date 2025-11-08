@@ -568,56 +568,115 @@ async def callback_admin_approve_withdrawal(callback: CallbackQuery):
 
         await session.commit()
 
-        # Handle star transfers
-        stars_sent = False
+        # Handle star transfers with improved multi-refund logic
+        total_refunded = 0
+        remaining_amount = 0
         admin_note = ""
 
         if withdrawal.currency == CurrencyType.STARS:
-            # Try to find a recent star payment to refund
+            # Get ALL eligible star transactions for refund (within 21 days)
             from app.database.models import TransactionType
             from sqlalchemy import select, desc
+            from datetime import datetime, timedelta
 
-            recent_star_payment = await session.execute(
+            # Find all star payments within refund window (21 days)
+            refund_cutoff = datetime.utcnow() - timedelta(days=21)
+
+            star_transactions_result = await session.execute(
                 select(Transaction)
                 .where(
                     Transaction.user_id == user.id,
                     Transaction.currency == CurrencyType.STARS,
                     Transaction.type == TransactionType.RAFFLE_ENTRY,
                     Transaction.status == TransactionStatus.COMPLETED,
-                    Transaction.payment_id.isnot(None)
+                    Transaction.payment_id.isnot(None),
+                    Transaction.created_at >= refund_cutoff
                 )
                 .order_by(desc(Transaction.created_at))
-                .limit(1)
             )
-            recent_payment = recent_star_payment.scalar_one_or_none()
+            star_transactions = star_transactions_result.scalars().all()
 
-            if recent_payment and recent_payment.payment_id:
-                # Try to refund the payment
+            if star_transactions:
+                # Try to refund using multiple transactions
                 try:
                     from app.services.stars_service import create_stars_service
                     stars_service = create_stars_service(callback.bot)
 
-                    await stars_service.refund_star_payment(
-                        user_id=user.telegram_id,
-                        telegram_payment_charge_id=recent_payment.payment_id
+                    refund_result = await stars_service.process_withdrawal_with_multiple_refunds(
+                        user_id=user.id,
+                        telegram_id=user.telegram_id,
+                        withdrawal_amount=int(withdrawal.amount),
+                        transactions=star_transactions
                     )
 
-                    stars_sent = True
-                    admin_note = "✅ Звезды отправлены автоматически через refund"
+                    total_refunded = refund_result["total_refunded"]
+                    remaining_amount = refund_result["remaining"]
+                    successful_count = len(refund_result["successful_refunds"])
+
+                    # Build detailed admin note
+                    if total_refunded > 0:
+                        admin_note = (
+                            f"✅ <b>Автоматический возврат выполнен</b>\n"
+                            f"Возвращено: {total_refunded} ⭐ через {successful_count} платеж(ей)\n"
+                        )
+
+                    if remaining_amount > 0:
+                        if total_refunded > 0:
+                            admin_note += f"\n⚠️ <b>Остаток для ручной отправки</b>\n"
+                        else:
+                            admin_note += f"⚠️ <b>Требуется ручная отправка</b>\n"
+
+                        admin_note += (
+                            f"Отправьте {remaining_amount} ⭐ пользователю вручную:\n"
+                            f"• User ID: <code>{user.telegram_id}</code>\n"
+                        )
+                        if user.username:
+                            admin_note += f"• Username: @{user.username}\n"
+
+                        admin_note += (
+                            f"\n<b>Как отправить:</b>\n"
+                            f"1. Используйте другого бота или личный аккаунт\n"
+                            f"2. Отправьте подарок на сумму {remaining_amount} ⭐\n"
+                            f"3. Или договоритесь с пользователем об альтернативе"
+                        )
+
                     logger.info(
-                        f"Successfully refunded {withdrawal.amount} stars to user {user.telegram_id}"
+                        f"Star withdrawal processed: "
+                        f"user={user.telegram_id}, "
+                        f"requested={withdrawal.amount}, "
+                        f"refunded={total_refunded}, "
+                        f"remaining={remaining_amount}"
                     )
+
                 except Exception as e:
-                    logger.error(f"Failed to refund stars: {e}")
-                    admin_note = f"⚠️ Не удалось отправить автоматически. Отправьте {int(withdrawal.amount)} ⭐ вручную пользователю {user.telegram_id}"
+                    logger.error(f"Failed to process star refunds: {e}", exc_info=True)
+                    remaining_amount = int(withdrawal.amount)
+                    admin_note = (
+                        f"❌ <b>Ошибка автоматического возврата</b>\n"
+                        f"Отправьте {remaining_amount} ⭐ вручную пользователю\n"
+                        f"User ID: <code>{user.telegram_id}</code>\n"
+                    )
+                    if user.username:
+                        admin_note += f"Username: @{user.username}\n"
+                    admin_note += f"\nОшибка: {str(e)}"
             else:
+                # No eligible transactions for refund
+                remaining_amount = int(withdrawal.amount)
                 admin_note = (
-                    f"⚠️ <b>Требуется ручная отправка</b>\n"
-                    f"Отправьте {int(withdrawal.amount)} ⭐ пользователю\n"
-                    f"User ID: {user.telegram_id}"
+                    f"⚠️ <b>Нет платежей для автоматического возврата</b>\n"
+                    f"У пользователя нет платежей за последние 21 день.\n\n"
+                    f"Отправьте {remaining_amount} ⭐ вручную:\n"
+                    f"• User ID: <code>{user.telegram_id}</code>\n"
                 )
                 if user.username:
-                    admin_note += f"\nUsername: @{user.username}"
+                    admin_note += f"• Username: @{user.username}\n"
+
+                admin_note += (
+                    f"\n<b>Способы отправки:</b>\n"
+                    f"1. Через другого бота (как подарок)\n"
+                    f"2. С личного аккаунта в Telegram\n"
+                    f"3. Предложить пользователю альтернативу (например, рубли)"
+                )
 
         # Notify user
         from app.services.notification import NotificationService
@@ -631,10 +690,25 @@ async def callback_admin_approve_withdrawal(callback: CallbackQuery):
         )
 
         if withdrawal.currency == CurrencyType.STARS:
-            if stars_sent:
-                user_message += "⭐ Звезды возвращены на ваш счет Telegram Stars!"
+            if total_refunded > 0 and remaining_amount == 0:
+                # Full amount refunded automatically
+                user_message += (
+                    f"⭐ <b>Звезды возвращены!</b>\n"
+                    f"Все {int(total_refunded)} звезд возвращены на ваш счет Telegram Stars автоматически."
+                )
+            elif total_refunded > 0 and remaining_amount > 0:
+                # Partial refund
+                user_message += (
+                    f"⭐ <b>Частичный возврат выполнен</b>\n"
+                    f"Автоматически возвращено: {int(total_refunded)} ⭐\n"
+                    f"Остаток ({int(remaining_amount)} ⭐) будет отправлен администратором вручную в ближайшее время."
+                )
             else:
-                user_message += "⭐ Звезды будут отправлены администратором в виде подарка в ближайшее время."
+                # No automatic refund possible
+                user_message += (
+                    f"⭐ Звезды будут отправлены администратором в виде подарка в ближайшее время.\n"
+                    f"Сумма: {int(withdrawal.amount)} ⭐"
+                )
         else:
             user_message += "💳 Средства будут переведены на указанные реквизиты в течение 1-3 рабочих дней."
 
@@ -642,6 +716,17 @@ async def callback_admin_approve_withdrawal(callback: CallbackQuery):
             user.telegram_id,
             user_message
         )
+
+        # Save refund information to withdrawal metadata
+        if withdrawal.currency == CurrencyType.STARS and total_refunded > 0:
+            withdrawal.payment_metadata = {
+                "total_refunded": total_refunded,
+                "remaining": remaining_amount,
+                "refund_count": len(refund_result.get("successful_refunds", [])),
+                "refund_rate": refund_result.get("refund_rate", 0),
+                "refund_details": refund_result.get("successful_refunds", [])
+            }
+            await session.commit()
 
         response_text = (
             f"✅ <b>Заявка #{withdrawal.id} одобрена!</b>\n\n"
@@ -662,7 +747,8 @@ async def callback_admin_approve_withdrawal(callback: CallbackQuery):
 
         logger.info(
             f"Admin approved withdrawal #{withdrawal.id}, "
-            f"user_id={user.id}, amount={withdrawal.amount}, stars_sent={stars_sent}"
+            f"user_id={user.id}, amount={withdrawal.amount}, "
+            f"auto_refunded={total_refunded}, remaining={remaining_amount}"
         )
 
     await callback.answer()
