@@ -71,12 +71,16 @@ class RandomOrgService:
             if random_number is None:
                 raise RandomOrgError("No random number in response")
 
+            # Extract serial number from the correct location
+            serial_number = random_data.get("serialNumber")
+
             logger.info(f"Received random number: {random_number}")
+            logger.debug(f"Serial number: {serial_number}")
 
             return {
                 "random_number": random_number,
                 "signature": result.get("signature"),
-                "serial_number": result.get("serialNumber"),
+                "serial_number": serial_number,
                 "full_response": result,
             }
 

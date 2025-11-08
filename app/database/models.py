@@ -108,7 +108,7 @@ class Transaction(Base):
     status = Column(Enum(TransactionStatus), default=TransactionStatus.PENDING)
     payment_id = Column(String, nullable=True)  # External payment system ID
     description = Column(Text, nullable=True)
-    metadata = Column(JSON, nullable=True)  # Additional payment data
+    payment_metadata = Column(JSON, nullable=True)  # Additional payment data
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

@@ -88,7 +88,7 @@ fi
 if [ "$DB_INITIALIZED" = false ]; then
     echo -e "${YELLOW}⚠️  Database not initialized${NC}"
     echo -e "${YELLOW}Initializing database...${NC}"
-    python scripts/init_db.py
+    PYTHONPATH=. python scripts/init_db.py
     if [ $? -ne 0 ]; then
         echo -e "${RED}❌ Database initialization failed!${NC}"
         exit 1
@@ -100,6 +100,9 @@ echo -e "${GREEN}✓ Database is ready${NC}"
 echo -e "\n${GREEN}========================================${NC}"
 echo -e "${GREEN}Starting bot...${NC}"
 echo -e "${GREEN}========================================${NC}\n"
+
+# Set PYTHONPATH for imports
+export PYTHONPATH=.
 
 # Run with automatic restart on crash
 while true; do

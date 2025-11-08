@@ -241,7 +241,7 @@ async def create_transaction(
     currency: CurrencyType,
     payment_id: Optional[str] = None,
     description: Optional[str] = None,
-    metadata: Optional[dict] = None,
+    payment_metadata: Optional[dict] = None,
 ) -> Transaction:
     """Create new transaction"""
     transaction = Transaction(
@@ -251,7 +251,7 @@ async def create_transaction(
         currency=currency,
         payment_id=payment_id,
         description=description,
-        metadata=metadata,
+        payment_metadata=payment_metadata,
         status=TransactionStatus.PENDING,
     )
     session.add(transaction)

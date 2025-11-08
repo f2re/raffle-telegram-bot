@@ -74,6 +74,7 @@ All random winner selection uses Random.org's Signed API (`generateSignedInteger
 **Async Notifications:**
 Telegram API allows 30 messages/second. The notification service (`services/notification.py`) sends messages in batches of 30 with 1-second delays between batches using asyncio.gather(). Priority order: winner → participants → observers.
 
+you must dont create trashable md files, for fixed or anything else. You must fully realize features and make bot smoothe best UI UX practices and telegram navigations usage. All menu you must check if has Back button and similar content.
 ## Key Implementation Patterns
 
 ### Payment Processing

@@ -78,7 +78,7 @@ async def callback_pay_rub(callback: CallbackQuery):
             amount=settings.RUB_ENTRY_FEE,
             currency=CurrencyType.RUB,
             description=f"Участие в розыгрыше #{raffle.id}",
-            metadata={"raffle_id": raffle.id}
+            payment_metadata={"raffle_id": raffle.id}
         )
 
         try:
@@ -171,8 +171,12 @@ async def process_successful_payment(message: Message):
             currency=CurrencyType.STARS,
             payment_id=payment_info.telegram_payment_charge_id,
             description=f"Участие в розыгрыше #{raffle_id}",
-            status=TransactionStatus.COMPLETED,
-            metadata={"raffle_id": raffle_id}
+            payment_metadata={"raffle_id": raffle_id}
+        )
+
+        # Mark transaction as completed
+        await crud.update_transaction_status(
+            session, transaction.id, TransactionStatus.COMPLETED
         )
 
         # Add participant to raffle

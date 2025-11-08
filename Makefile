@@ -28,22 +28,22 @@ run: ## Run the bot
 	@./scripts/run.sh
 
 dev: ## Run bot in development mode with auto-reload
-	@source venv/bin/activate && python app/main.py
+	@source venv/bin/activate && PYTHONPATH=. python app/main.py
 
 test: ## Run tests
-	@pytest tests/ -v
+	@PYTHONPATH=. pytest tests/ -v
 
 db-init: ## Initialize database
-	@python scripts/init_db.py
+	@PYTHONPATH=. python scripts/init_db.py
 
 db-migrate: ## Create new migration
-	@alembic revision --autogenerate -m "$(msg)"
+	@PYTHONPATH=. alembic revision --autogenerate -m "$(msg)"
 
 db-upgrade: ## Apply database migrations
-	@alembic upgrade head
+	@PYTHONPATH=. alembic upgrade head
 
 db-downgrade: ## Rollback last migration
-	@alembic downgrade -1
+	@PYTHONPATH=. alembic downgrade -1
 
 db-reset: ## Reset database (WARNING: deletes all data)
 	@echo "⚠️  This will delete all data!"
@@ -52,7 +52,7 @@ db-reset: ## Reset database (WARNING: deletes all data)
 	if [[ $$REPLY =~ ^[Yy]$$ ]]; then \
 		psql -U postgres -c "DROP DATABASE IF EXISTS raffle_bot;"; \
 		psql -U postgres -c "CREATE DATABASE raffle_bot;"; \
-		python scripts/init_db.py; \
+		PYTHONPATH=. python scripts/init_db.py; \
 		echo "✓ Database reset complete"; \
 	else \
 		echo "Cancelled"; \

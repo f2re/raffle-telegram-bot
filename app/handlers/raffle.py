@@ -6,7 +6,7 @@ from app.database.session import get_session
 from app.database import crud
 from app.database.models import RaffleStatus, CurrencyType, TransactionType, TransactionStatus
 from app.config import settings
-from app.keyboards.inline import payment_choice, raffle_info_keyboard, verification_link_keyboard
+from app.keyboards.inline import payment_choice, raffle_info_keyboard, verification_link_keyboard, back_button
 from app.services.random_service import random_service, RandomOrgError
 from app.services.notification import NotificationService
 
@@ -59,6 +59,7 @@ async def callback_current_raffle(callback: CallbackQuery):
                 "🎁 <b>Розыгрыш</b>\n\n"
                 "Сейчас нет активного розыгрыша.\n"
                 "Следующий розыгрыш начнется скоро!",
+                reply_markup=back_button(),
                 parse_mode="HTML"
             )
             await callback.answer()
@@ -151,6 +152,7 @@ async def callback_history(callback: CallbackQuery):
             await callback.message.edit_text(
                 "📜 <b>История участия</b>\n\n"
                 "Вы еще не участвовали в розыгрышах.",
+                reply_markup=back_button(),
                 parse_mode="HTML"
             )
             await callback.answer()
@@ -173,6 +175,7 @@ async def callback_history(callback: CallbackQuery):
 
         await callback.message.edit_text(
             history_text,
+            reply_markup=back_button(),
             parse_mode="HTML"
         )
 
@@ -246,15 +249,19 @@ async def execute_raffle(bot: Bot, raffle_id: int):
             )
 
             # Create win transaction
-            await crud.create_transaction(
+            win_transaction = await crud.create_transaction(
                 session,
                 user_id=winner_participant.user_id,
                 type=TransactionType.RAFFLE_WIN,
                 amount=prize_amount,
                 currency=raffle.entry_fee_type,
-                status=TransactionStatus.COMPLETED,
                 description=f"Выигрыш в розыгрыше #{raffle_id}",
-                metadata={"raffle_id": raffle_id}
+                payment_metadata={"raffle_id": raffle_id}
+            )
+
+            # Mark transaction as completed
+            await crud.update_transaction_status(
+                session, win_transaction.id, TransactionStatus.COMPLETED
             )
 
             await session.commit()
@@ -299,12 +306,15 @@ async def execute_raffle(bot: Bot, raffle_id: int):
                 f"Выигрышное число: {random_result['random_number']}\n\n"
                 f"Всего участников: {len(participants)}\n"
                 f"Приз: {prize_amount:.0f} {currency_name}\n\n"
+                f"✨ Результат проверяемый через Random.org\n"
+                f"Проверьте честность розыгрыша по ссылке ниже!\n\n"
                 f"Удачи в следующий раз! 🍀"
             )
 
             await notification_service.send_to_many(
                 participant_ids,
-                participants_message
+                participants_message,
+                reply_markup=verification_link_keyboard(verification_url)
             )
 
             logger.info(
