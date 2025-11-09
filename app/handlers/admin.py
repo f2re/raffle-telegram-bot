@@ -866,7 +866,12 @@ async def callback_admin_reject_withdrawal(callback: CallbackQuery, state: FSMCo
 
 @router.callback_query(F.data.startswith("confirm_payout:"))
 async def callback_confirm_payout(callback: CallbackQuery):
-    """Admin confirms that they paid the winner"""
+    """
+    Admin manually confirms payout (alternative to automatic invoice payment)
+
+    This is used when admin paid winner through alternative method
+    (not via the invoice link)
+    """
     if not is_admin(callback.from_user.id):
         await callback.answer("❌ Только администратор может это сделать!", show_alert=True)
         return
@@ -886,6 +891,53 @@ async def callback_confirm_payout(callback: CallbackQuery):
             await callback.answer("✅ Эта выплата уже подтверждена!", show_alert=True)
             return
 
+        # Get winner
+        winner = payout.winner
+
+        # Check if Stars were already credited (via successful_payment)
+        # by checking for RAFFLE_WIN transaction
+        from sqlalchemy import select
+        from app.database.models import Transaction, TransactionType
+
+        existing_transaction = await session.execute(
+            select(Transaction).where(
+                Transaction.user_id == winner.id,
+                Transaction.type == TransactionType.RAFFLE_WIN,
+                Transaction.payment_metadata.contains({"raffle_id": raffle_id})
+            )
+        )
+        already_credited = existing_transaction.scalar_one_or_none()
+
+        if not already_credited:
+            # Stars not yet credited - credit them now
+            await crud.update_user_balance(
+                session,
+                user_id=winner.id,
+                amount=payout.amount,
+                currency=payout.currency,
+            )
+
+            # Create transaction record
+            await crud.create_transaction(
+                session,
+                user_id=winner.id,
+                type=TransactionType.RAFFLE_WIN,
+                amount=payout.amount,
+                currency=payout.currency,
+                payment_id=f"manual_payout_{raffle_id}",
+                description=f"Приз за победу в розыгрыше #{raffle_id} (ручное подтверждение)",
+                payment_metadata={
+                    "raffle_id": raffle_id,
+                    "admin_id": callback.from_user.id,
+                    "manual_confirmation": True,
+                }
+            )
+
+            logger.info(
+                f"Manual payout: credited {payout.amount} to winner {winner.telegram_id} "
+                f"for raffle {raffle_id}"
+            )
+
         # Get admin user for tracking
         admin_user = await crud.get_user_by_telegram_id(session, callback.from_user.id)
 
@@ -899,18 +951,22 @@ async def callback_confirm_payout(callback: CallbackQuery):
 
         await session.commit()
 
-        # Get winner info
-        winner = payout.winner
+        # Refresh winner to get updated balance
+        await session.refresh(winner)
+
         currency_symbol = "⭐" if payout.currency == CurrencyType.STARS else "₽"
         amount_str = f"{int(payout.amount)}" if payout.currency == CurrencyType.STARS else f"{payout.amount:.2f}"
 
     # Update admin message
+    credit_note = "" if already_credited else "\n💫 Stars зачислены на баланс победителя в БД\n"
+
     await callback.message.edit_text(
         f"✅ <b>ВЫПЛАТА ПОДТВЕРЖДЕНА</b>\n\n"
         f"🏆 Розыгрыш: #{raffle_id}\n"
         f"👤 Победитель: {winner.first_name}"
         f"{' @' + winner.username if winner.username else ''}\n"
-        f"💰 Сумма: {amount_str} {currency_symbol}\n\n"
+        f"💰 Сумма: {amount_str} {currency_symbol}\n"
+        f"{credit_note}\n"
         f"<b>Статус:</b> Оплачено ✅\n"
         f"<b>Время:</b> {payout.completed_at.strftime('%Y-%m-%d %H:%M:%S')}\n\n"
         f"Победитель уведомлен о получении приза.",
@@ -918,19 +974,27 @@ async def callback_confirm_payout(callback: CallbackQuery):
     )
     await callback.answer("✅ Выплата подтверждена!")
 
-    # Notify winner about completed payout
-    from app.services.admin_payout_service import create_admin_payout_service
-    payout_service = create_admin_payout_service(callback.bot)
-    await payout_service.notify_winner_payment_completed(
-        winner_id=winner.telegram_id,
-        amount=payout.amount,
-        raffle_id=raffle_id,
-        currency=payout.currency,
+    # Notify winner
+    winner_message = (
+        f"🎉 <b>Поздравляем с победой!</b>\n\n"
+        f"Вам зачислено {amount_str} {currency_symbol} на баланс!\n"
+        f"🏆 Приз за победу в розыгрыше #{raffle_id}\n\n"
+        f"💰 Ваш баланс: {winner.balance_stars if payout.currency == CurrencyType.STARS else winner.balance_rub} {currency_symbol}\n\n"
+        f"Вы можете использовать баланс для участия в новых розыгрышах!\n"
+        f"Используйте команду /balance для просмотра баланса."
+    )
+
+    from app.services.notification import NotificationService
+    notification_service = NotificationService(callback.bot)
+    await notification_service.send_to_user(
+        winner.telegram_id,
+        winner_message
     )
 
     logger.info(
         f"Payout confirmed by admin {callback.from_user.id} "
-        f"for raffle {raffle_id}, winner {winner.telegram_id}"
+        f"for raffle {raffle_id}, winner {winner.telegram_id}, "
+        f"already_credited={already_credited}"
     )
 
 

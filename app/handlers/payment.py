@@ -144,7 +144,12 @@ async def process_successful_payment(message: Message):
         f"payload: {payment_info.invoice_payload}"
     )
 
-    # Extract raffle_id from payload
+    # Check if this is an admin payout
+    if payment_info.invoice_payload.startswith("payout_"):
+        await process_admin_payout_payment(message)
+        return
+
+    # Extract raffle_id from payload for regular raffle entry
     try:
         raffle_id = int(payment_info.invoice_payload.split("_")[1])
     except (IndexError, ValueError):
@@ -215,4 +220,143 @@ async def process_successful_payment(message: Message):
             await message.answer(
                 "Вы уже участвуете в этом розыгрыше. "
                 "Средства будут возвращены автоматически."
+            )
+
+
+async def process_admin_payout_payment(message: Message):
+    """
+    Handle successful payment from admin for winner payout
+
+    When admin pays the invoice:
+    1. Stars are received by the bot
+    2. Stars are credited to winner's balance in DB
+    3. Winner can use balance for participating in raffles
+    """
+    payment_info = message.successful_payment
+
+    # Parse payload: payout_{raffle_id}_{winner_id}
+    try:
+        parts = payment_info.invoice_payload.split("_")
+        raffle_id = int(parts[1])
+        winner_telegram_id = int(parts[2])
+        amount = payment_info.total_amount
+
+        logger.info(
+            f"Processing admin payout: raffle={raffle_id}, "
+            f"winner={winner_telegram_id}, amount={amount}"
+        )
+
+    except (IndexError, ValueError) as e:
+        logger.error(f"Invalid payout payload: {payment_info.invoice_payload}")
+        await message.answer(
+            "❌ Ошибка обработки платежа.\n"
+            "Неверный формат данных."
+        )
+        return
+
+    async with get_session() as session:
+        try:
+            # Get payout request
+            payout = await crud.get_payout_request_by_raffle(session, raffle_id)
+            if not payout:
+                logger.error(f"Payout request not found for raffle {raffle_id}")
+                await message.answer(
+                    "❌ Запрос на выплату не найден."
+                )
+                return
+
+            # Get winner user
+            winner = await crud.get_user_by_telegram_id(session, winner_telegram_id)
+            if not winner:
+                logger.error(f"Winner user {winner_telegram_id} not found")
+                await message.answer(
+                    "❌ Пользователь-победитель не найден в базе данных."
+                )
+                return
+
+            # Get raffle info
+            raffle = await crud.get_raffle_by_id(session, raffle_id)
+            currency = raffle.entry_fee_type if raffle else CurrencyType.STARS
+
+            # Credit Stars to winner's balance in DB
+            await crud.update_user_balance(
+                session,
+                user_id=winner.id,
+                amount=amount,
+                currency=currency,
+            )
+
+            # Create transaction record
+            await crud.create_transaction(
+                session,
+                user_id=winner.id,
+                type=TransactionType.RAFFLE_WIN,
+                amount=amount,
+                currency=currency,
+                payment_id=payment_info.telegram_payment_charge_id,
+                description=f"Приз за победу в розыгрыше #{raffle_id}",
+                payment_metadata={
+                    "raffle_id": raffle_id,
+                    "admin_id": message.from_user.id,
+                    "telegram_charge_id": payment_info.telegram_payment_charge_id,
+                }
+            )
+
+            # Update payout request status
+            admin_user = await crud.get_user_by_telegram_id(session, message.from_user.id)
+            await crud.update_payout_status(
+                session,
+                payout_id=payout.id,
+                status=crud.PayoutStatus.COMPLETED,
+                admin_id=admin_user.id if admin_user else None,
+            )
+
+            await session.commit()
+
+            # Format currency display
+            currency_symbol = "⭐" if currency == CurrencyType.STARS else "₽"
+            amount_str = f"{int(amount)}" if currency == CurrencyType.STARS else f"{amount:.2f}"
+
+            # Notify admin
+            await message.answer(
+                f"✅ <b>Выплата подтверждена!</b>\n\n"
+                f"💫 {amount_str} {currency_symbol} зачислены на баланс победителя\n"
+                f"🏆 Розыгрыш: #{raffle_id}\n"
+                f"👤 Победитель: {winner.first_name}"
+                f"{f' (@{winner.username})' if winner.username else ''}\n"
+                f"📝 ID транзакции: {payment_info.telegram_payment_charge_id}\n\n"
+                f"Победитель может использовать баланс для участия в новых розыгрышах!",
+                parse_mode="HTML"
+            )
+
+            # Notify winner
+            winner_message = (
+                f"🎉 <b>Поздравляем с победой!</b>\n\n"
+                f"Вам зачислено {amount_str} {currency_symbol} на баланс!\n"
+                f"🏆 Приз за победу в розыгрыше #{raffle_id}\n\n"
+                f"💰 Ваш баланс: {winner.balance_stars if currency == CurrencyType.STARS else winner.balance_rub} {currency_symbol}\n\n"
+                f"Вы можете использовать баланс для участия в новых розыгрышах!\n"
+                f"Используйте команду /balance для просмотра баланса."
+            )
+
+            await message.bot.send_message(
+                winner_telegram_id,
+                winner_message,
+                parse_mode="HTML"
+            )
+
+            logger.info(
+                f"Admin payout completed: raffle={raffle_id}, "
+                f"winner={winner_telegram_id}, amount={amount}, "
+                f"new_balance={winner.balance_stars if currency == CurrencyType.STARS else winner.balance_rub}"
+            )
+
+        except Exception as e:
+            logger.error(f"Error processing admin payout: {e}", exc_info=True)
+            await session.rollback()
+            await message.answer(
+                "❌ <b>Ошибка при обработке выплаты</b>\n\n"
+                "Свяжитесь с технической поддержкой.\n"
+                f"Код ошибки: {str(e)[:100]}",
+                parse_mode="HTML"
             )
