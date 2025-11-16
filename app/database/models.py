@@ -206,3 +206,28 @@ class PayoutRequest(Base):
     winner = relationship("User", foreign_keys=[winner_id])
     completed_by_admin = relationship("User", foreign_keys=[completed_by])
     rejected_by_admin = relationship("User", foreign_keys=[rejected_by])
+
+
+class TonConnectSession(Base):
+    """
+    TON Connect wallet sessions
+    Stores connected wallet data for each user
+    """
+    __tablename__ = "ton_connect_sessions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    wallet_address = Column(String(48), nullable=False, index=True)  # Connected TON wallet address
+    wallet_state_init = Column(Text, nullable=True)  # Wallet state init for contract
+    wallet_public_key = Column(String(64), nullable=True)  # Wallet public key
+    session_data = Column(JSON, nullable=True)  # TON Connect session data (for restore)
+    is_active = Column(Boolean, default=True, index=True)  # Is session active
+    connected_at = Column(DateTime, default=datetime.utcnow)
+    last_used = Column(DateTime, default=datetime.utcnow)
+    disconnected_at = Column(DateTime, nullable=True)
+
+    # Relationships
+    user = relationship("User", backref="ton_connect_sessions")
+
+    def __repr__(self):
+        return f"<TonConnectSession(user_id={self.user_id}, wallet={self.wallet_address[:8]}...)>"

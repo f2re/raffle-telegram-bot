@@ -8,7 +8,10 @@ from app.database.models import CurrencyType, TransactionType, TransactionStatus
 from app.config import settings
 from app.services.payment_service import yookassa_service, PaymentError
 from app.services.ton_service import ton_service
-from app.keyboards.inline import back_button, ton_payment_keyboard
+from app.services.ton_connect_service import ton_connect_service, TonConnectError
+from app.keyboards.inline import (
+    back_button, ton_payment_keyboard, ton_payment_choice_keyboard, ton_connect_keyboard
+)
 
 router = Router()
 
@@ -128,7 +131,11 @@ async def callback_pay_rub(callback: CallbackQuery):
 
 @router.callback_query(F.data == "pay_ton")
 async def callback_pay_ton(callback: CallbackQuery):
-    """Handle payment with TON cryptocurrency - improved UX with deep links"""
+    """
+    Handle payment with TON cryptocurrency
+
+    Shows payment choice: TON Connect (if wallet connected) or Deep Links
+    """
     async with get_session() as session:
         # Get current raffle
         raffle = await crud.get_active_raffle(session)
@@ -162,46 +169,78 @@ async def callback_pay_ton(callback: CallbackQuery):
             await callback.answer("Вы уже участвуете в этом розыгрыше!", show_alert=True)
             return
 
-        # Generate unique payment comment
-        payment_comment = ton_service.generate_payment_comment(
-            raffle_id=raffle.id,
-            user_id=user.id
-        )
+        # Check if TON Connect wallet is connected
+        ton_session = await crud.get_active_ton_connect_session(session, user.id)
+        is_wallet_connected = ton_session is not None
 
         # Get entry fee
         entry_fee = raffle.entry_fee_amount
 
-        # Generate deep links for different wallets
-        deep_links = ton_service.generate_payment_deep_link(
-            amount_ton=entry_fee,
-            comment=payment_comment
-        )
-
-        # Send payment instructions with deep link buttons
-        await callback.message.edit_text(
-            f"💎 <b>Оплата участия в розыгрыше #{raffle.id}</b>\n\n"
-            f"<b>Сумма:</b> {entry_fee:.4f} TON\n\n"
-            f"🚀 <b>Быстрая оплата:</b>\n"
-            f"Нажмите кнопку ниже - ваш TON кошелек откроется автоматически "
-            f"с уже заполненной суммой и комментарием!\n\n"
-            f"✅ После оплаты бот автоматически зарегистрирует ваше участие "
-            f"в течение {settings.TON_TRANSACTION_CHECK_INTERVAL} секунд.\n\n"
-            f"💡 <b>Совет:</b> Используйте кнопку '🔄 Проверить оплату' чтобы "
-            f"узнать статус обработки платежа.",
-            reply_markup=ton_payment_keyboard(
-                tonkeeper_url=deep_links["tonkeeper"],
-                ton_url=deep_links["ton"],
-                raffle_id=raffle.id
-            ),
-            parse_mode="HTML"
-        )
+        if is_wallet_connected:
+            # Show TON Connect payment option
+            await callback.message.edit_text(
+                f"💎 <b>Оплата участия в розыгрыше #{raffle.id}</b>\n\n"
+                f"<b>Сумма:</b> {entry_fee:.4f} TON\n\n"
+                f"🔗 <b>У вас подключен кошелек TON Connect</b>\n"
+                f"<code>{ton_session.wallet_address[:8]}...{ton_session.wallet_address[-4:]}</code>\n\n"
+                f"⚡ <b>Быстрая оплата (рекомендуем):</b>\n"
+                f"Нажмите кнопку ниже - кошелек откроется автоматически с готовой транзакцией!\n\n"
+                f"💎 <b>Или оплатите вручную:</b>\n"
+                f"Используйте стандартный способ с deep links",
+                reply_markup=ton_payment_choice_keyboard(
+                    is_wallet_connected=True,
+                    raffle_id=raffle.id,
+                    entry_fee=entry_fee
+                ),
+                parse_mode="HTML"
+            )
+        else:
+            # Show Deep Links payment (fallback)
+            await show_ton_deep_link_payment(callback, raffle, user)
 
         logger.info(
             f"TON payment screen sent to user {user.telegram_id} "
-            f"for raffle {raffle.id} with deep links"
+            f"for raffle {raffle.id} (wallet_connected={is_wallet_connected})"
         )
 
     await callback.answer()
+
+
+async def show_ton_deep_link_payment(callback: CallbackQuery, raffle, user):
+    """Show TON payment via deep links (fallback method)"""
+    # Generate unique payment comment
+    payment_comment = ton_service.generate_payment_comment(
+        raffle_id=raffle.id,
+        user_id=user.id
+    )
+
+    # Get entry fee
+    entry_fee = raffle.entry_fee_amount
+
+    # Generate deep links for different wallets
+    deep_links = ton_service.generate_payment_deep_link(
+        amount_ton=entry_fee,
+        comment=payment_comment
+    )
+
+    # Send payment instructions with deep link buttons
+    await callback.message.edit_text(
+        f"💎 <b>Оплата участия в розыгрыше #{raffle.id}</b>\n\n"
+        f"<b>Сумма:</b> {entry_fee:.4f} TON\n\n"
+        f"🚀 <b>Быстрая оплата:</b>\n"
+        f"Нажмите кнопку ниже - ваш TON кошелек откроется автоматически "
+        f"с уже заполненной суммой и комментарием!\n\n"
+        f"✅ После оплаты бот автоматически зарегистрирует ваше участие "
+        f"в течение {settings.TON_TRANSACTION_CHECK_INTERVAL} секунд.\n\n"
+        f"💡 <b>Совет:</b> Используйте кнопку '🔄 Проверить оплату' чтобы "
+        f"узнать статус обработки платежа.",
+        reply_markup=ton_payment_keyboard(
+            tonkeeper_url=deep_links["tonkeeper"],
+            ton_url=deep_links["ton"],
+            raffle_id=raffle.id
+        ),
+        parse_mode="HTML"
+    )
 
 
 @router.callback_query(F.data.startswith("check_ton_payment_"))
@@ -307,6 +346,112 @@ async def callback_show_manual_ton_payment(callback: CallbackQuery):
         f"Manual payment details shown to user {callback.from_user.id} "
         f"for raffle {raffle_id}"
     )
+
+
+@router.callback_query(F.data.startswith("pay_ton_connect_"))
+async def callback_pay_ton_connect(callback: CallbackQuery):
+    """Handle payment via TON Connect (connected wallet)"""
+    raffle_id = int(callback.data.split("_")[3])
+
+    async with get_session() as session:
+        # Get raffle
+        raffle = await crud.get_raffle_by_id(session, raffle_id)
+        if not raffle:
+            await callback.answer("Розыгрыш не найден", show_alert=True)
+            return
+
+        # Get user
+        user = await crud.get_user_by_telegram_id(session, callback.from_user.id)
+        if not user:
+            await callback.answer("Ошибка: пользователь не найден", show_alert=True)
+            return
+
+        # Check if wallet connected
+        ton_session = await crud.get_active_ton_connect_session(session, user.id)
+        if not ton_session:
+            await callback.answer(
+                "Кошелек не подключен. Используйте ручную оплату.",
+                show_alert=True
+            )
+            return
+
+        # Check if already participating
+        participants = await crud.get_raffle_participants(session, raffle_id)
+        if any(p.user_id == user.id for p in participants):
+            await callback.answer("Вы уже участвуете в этом розыгрыше!", show_alert=True)
+            return
+
+    try:
+        # Get entry fee
+        entry_fee = raffle.entry_fee_amount
+        amount_nano = int(entry_fee * 1_000_000_000)
+
+        # Generate payment comment
+        payment_comment = ton_service.generate_payment_comment(
+            raffle_id=raffle_id,
+            user_id=user.id
+        )
+
+        # Send transaction via TON Connect
+        await callback.message.edit_text(
+            f"⏳ <b>Отправка транзакции...</b>\n\n"
+            f"Сейчас откроется ваш кошелек с готовой транзакцией.\n"
+            f"Подтвердите оплату в кошельке.",
+            parse_mode="HTML"
+        )
+
+        result = await ton_connect_service.send_transaction(
+            user_id=user.id,
+            destination=settings.TON_WALLET_ADDRESS,
+            amount_nano=amount_nano,
+            comment=payment_comment
+        )
+
+        await callback.message.edit_text(
+            f"✅ <b>Транзакция отправлена!</b>\n\n"
+            f"Сумма: {entry_fee:.4f} TON\n"
+            f"Кошелек: <code>{ton_session.wallet_address[:8]}...{ton_session.wallet_address[-4:]}</code>\n\n"
+            f"⏳ Ожидаем подтверждения в блокчейне...\n\n"
+            f"Бот автоматически зарегистрирует ваше участие после подтверждения транзакции "
+            f"(обычно занимает {settings.TON_TRANSACTION_CHECK_INTERVAL} секунд).",
+            reply_markup=back_button(),
+            parse_mode="HTML"
+        )
+
+        logger.info(
+            f"TON Connect transaction sent for user {user.telegram_id}, "
+            f"raffle {raffle_id}, amount: {entry_fee} TON"
+        )
+
+    except TonConnectError as e:
+        logger.error(f"TON Connect payment failed: {e}")
+        await callback.message.edit_text(
+            f"❌ <b>Ошибка оплаты</b>\n\n"
+            f"Не удалось отправить транзакцию через TON Connect.\n\n"
+            f"Возможные причины:\n"
+            f"• Вы отклонили транзакцию в кошельке\n"
+            f"• Недостаточно средств\n"
+            f"• Проблемы с подключением\n\n"
+            f"Попробуйте еще раз или используйте ручную оплату.",
+            reply_markup=back_button(),
+            parse_mode="HTML"
+        )
+
+    await callback.answer()
+
+
+@router.callback_query(F.data == "connect_and_pay_ton")
+async def callback_connect_and_pay_ton(callback: CallbackQuery):
+    """Connect TON wallet and then pay"""
+    await callback.message.edit_text(
+        f"🔗 <b>Подключение кошелька</b>\n\n"
+        f"Для быстрой оплаты через TON Connect сначала подключите кошелек.\n\n"
+        f"После подключения вы сможете оплачивать участие в один клик!\n\n"
+        f"Нажмите кнопку ниже, чтобы начать подключение.",
+        reply_markup=ton_connect_keyboard(is_connected=False),
+        parse_mode="HTML"
+    )
+    await callback.answer()
 
 
 @router.pre_checkout_query()

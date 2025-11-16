@@ -18,6 +18,7 @@ yookassa
 pytoniq>=0.1.38
 pytoniq-core>=0.1.30
 tonsdk
+pytonconnect  # TON Connect SDK for wallet integration
 
 # HTTP Requests
 requests
