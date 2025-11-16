@@ -5,6 +5,7 @@ A Telegram bot for running provably fair raffles with two payment methods: Teleg
 ## Features
 
 - **Dual Payment System**: Accept both Telegram Stars and Russian Rubles
+- **TON Connect Integration**: One-click payments with connected TON wallets
 - **Provably Fair**: Uses Random.org Signed API for verifiable randomness
 - **Automated Payouts**: Instant payouts to winners
 - **Admin Panel**: Complete raffle management interface
@@ -211,6 +212,18 @@ Edit `.env` to customize:
 - Instant processing
 - No additional setup required
 - 21-day reserve system for liquidity
+
+### TON Connect (Recommended)
+
+- **One-click payments**: Connect wallet once, pay instantly
+- **Better UX**: No copying addresses or comments
+- **Auto-initiated transactions**: Bot sends transaction, user just confirms
+- **Supported wallets**: Tonkeeper, MyTonWallet, OpenMask
+- **Persistent connection**: Stays connected across sessions
+
+**Setup**: See [GITHUB_PAGES_SETUP.md](GITHUB_PAGES_SETUP.md) to publish TON Connect manifest
+
+**Live manifest**: https://f2re.github.io/raffle-telegram-bot/tonconnect-manifest.json
 
 ### Russian Rubles (YooKassa)
 
