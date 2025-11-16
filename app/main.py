@@ -26,21 +26,29 @@ async def on_startup(bot: Bot):
 
     # Initialize database (creates all enums and tables)
     try:
-        # Check if database is healthy
+        logger.info("Checking database health...")
         is_healthy = await check_db_health(engine)
 
         if not is_healthy:
             logger.info("Database needs initialization...")
             await init_database(engine)
         else:
-            logger.info("Database exists, checking enum types...")
+            logger.info("Database exists, ensuring enum types are up to date...")
             # Even if database exists, ensure enums are up to date (for TON support)
+            # This is CRITICAL for adding the 'ton' value to existing databases
             await ensure_enums_updated(engine)
-            logger.info("Database is ready")
 
-        logger.success("✅ Database ready")
+        # Verify the fix worked
+        logger.info("Verifying database is ready...")
+        is_healthy_now = await check_db_health(engine)
+        if not is_healthy_now:
+            logger.error("Database health check failed after initialization!")
+            logger.error("The 'ton' enum value may not have been added properly.")
+            sys.exit(1)
+
+        logger.success("✅ Database ready (including TON support)")
     except Exception as e:
-        logger.error(f"Failed to initialize database: {e}")
+        logger.error(f"Failed to initialize database: {e}", exc_info=True)
         logger.error("Bot cannot start until database is initialized successfully")
         sys.exit(1)
 

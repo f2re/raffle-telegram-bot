@@ -17,7 +17,11 @@ async def create_enums(engine: AsyncEngine):
     Create PostgreSQL enum types if they don't exist
 
     This must be done before creating tables that use these enums
+
+    CRITICAL: PostgreSQL does NOT allow adding enum values and using them
+    in the same transaction. We must commit after adding enum values.
     """
+    # First transaction: Create base enum types
     async with engine.begin() as conn:
         logger.info("Checking and creating PostgreSQL enums...")
 
@@ -29,9 +33,11 @@ async def create_enums(engine: AsyncEngine):
                 WHEN duplicate_object THEN NULL;
             END $$;
         """))
+    # Transaction commits here, enum creation is persisted
 
-        # Separately check and add 'ton' value if it's missing from existing enum
-        # This must be done outside the DO block for proper transaction handling
+    # Second transaction: Check and add missing values (MUST be separate!)
+    async with engine.begin() as conn:
+        # Check if 'ton' value exists
         result = await conn.execute(text("""
             SELECT EXISTS (
                 SELECT 1 FROM pg_enum e
@@ -43,10 +49,23 @@ async def create_enums(engine: AsyncEngine):
 
         if not ton_exists:
             logger.warning("Adding missing 'ton' value to currencytype enum...")
-            await conn.execute(text("ALTER TYPE currencytype ADD VALUE IF NOT EXISTS 'ton'"))
-            logger.info("✅ Added 'ton' value to currencytype enum")
+            # Use basic ALTER TYPE without IF NOT EXISTS for older PostgreSQL compatibility
+            try:
+                await conn.execute(text("ALTER TYPE currencytype ADD VALUE 'ton'"))
+                logger.info("✅ Added 'ton' value to currencytype enum")
+            except Exception as e:
+                # If it fails because value already exists, that's OK
+                if "already exists" not in str(e):
+                    raise
+                logger.debug("'ton' value already exists (concurrent add)")
+        else:
+            logger.debug("✅ 'ton' value already exists in currencytype enum")
 
-        logger.debug("✅ currencytype enum ready")
+    # Transaction commits here, enum value addition is persisted
+    logger.debug("✅ currencytype enum ready")
+
+    # Third transaction: Create other enum types
+    async with engine.begin() as conn:
 
         # Create rafflestatus enum
         await conn.execute(text("""
@@ -98,7 +117,7 @@ async def create_enums(engine: AsyncEngine):
         """))
         logger.debug("✅ payoutstatus enum ready")
 
-        logger.info("All PostgreSQL enums created successfully")
+    logger.info("All PostgreSQL enums created successfully")
 
 
 async def init_database(engine: AsyncEngine, force_enum_check: bool = True):
