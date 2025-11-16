@@ -81,9 +81,9 @@ class Raffle(Base):
     id = Column(Integer, primary_key=True, index=True)
     min_participants = Column(Integer, nullable=False)
     max_participants = Column(Integer, nullable=True)
-    entry_fee_type = Column(Enum(CurrencyType), nullable=False)
+    entry_fee_type = Column(Enum(CurrencyType, values_callable=lambda x: [e.value for e in x], name='currencytype'), nullable=False)
     entry_fee_amount = Column(Float, nullable=False)
-    status = Column(Enum(RaffleStatus), default=RaffleStatus.PENDING)
+    status = Column(Enum(RaffleStatus, values_callable=lambda x: [e.value for e in x], name='rafflestatus'), default=RaffleStatus.PENDING)
     started_at = Column(DateTime, nullable=True)
     finished_at = Column(DateTime, nullable=True)
     deadline = Column(DateTime, nullable=True)
@@ -120,10 +120,10 @@ class Transaction(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    type = Column(Enum(TransactionType), nullable=False)
+    type = Column(Enum(TransactionType, values_callable=lambda x: [e.value for e in x], name='transactiontype'), nullable=False)
     amount = Column(Float, nullable=False)
-    currency = Column(Enum(CurrencyType), nullable=False)
-    status = Column(Enum(TransactionStatus), default=TransactionStatus.PENDING)
+    currency = Column(Enum(CurrencyType, values_callable=lambda x: [e.value for e in x], name='currencytype'), nullable=False)
+    status = Column(Enum(TransactionStatus, values_callable=lambda x: [e.value for e in x], name='transactionstatus'), default=TransactionStatus.PENDING)
     payment_id = Column(String, nullable=True)  # External payment system ID
     transaction_hash = Column(String(44), nullable=True, index=True)  # TON blockchain transaction hash
     description = Column(Text, nullable=True)
@@ -152,8 +152,8 @@ class WithdrawalRequest(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     amount = Column(Float, nullable=False)
-    currency = Column(Enum(CurrencyType), nullable=False)
-    status = Column(Enum(WithdrawalStatus), default=WithdrawalStatus.PENDING)
+    currency = Column(Enum(CurrencyType, values_callable=lambda x: [e.value for e in x], name='currencytype'), nullable=False)
+    status = Column(Enum(WithdrawalStatus, values_callable=lambda x: [e.value for e in x], name='withdrawalstatus'), default=WithdrawalStatus.PENDING)
 
     # Payment details (for RUB withdrawals)
     card_number = Column(String, nullable=True)  # Bank card number
@@ -188,9 +188,9 @@ class PayoutRequest(Base):
     raffle_id = Column(Integer, ForeignKey("raffles.id"), nullable=False)
     winner_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     amount = Column(Float, nullable=False)  # Prize amount
-    currency = Column(Enum(CurrencyType), nullable=False)
+    currency = Column(Enum(CurrencyType, values_callable=lambda x: [e.value for e in x], name='currencytype'), nullable=False)
     invoice_link = Column(String(500), nullable=False)  # Invoice link for admin to pay
-    status = Column(Enum(PayoutStatus), default=PayoutStatus.PENDING)
+    status = Column(Enum(PayoutStatus, values_callable=lambda x: [e.value for e in x], name='payoutstatus'), default=PayoutStatus.PENDING)
 
     # Admin actions
     completed_by = Column(Integer, ForeignKey("users.id"), nullable=True)  # Admin who confirmed
