@@ -1,6 +1,7 @@
 from .models import Base, User, Raffle, Participant, Transaction, BotSettings
 from .models import CurrencyType, RaffleStatus, TransactionType, TransactionStatus
-from .session import get_session, init_db
+from .session import get_session, engine
+from .init_db import init_database, check_db_health
 
 __all__ = [
     "Base",
@@ -14,5 +15,7 @@ __all__ = [
     "TransactionType",
     "TransactionStatus",
     "get_session",
-    "init_db",
+    "engine",
+    "init_database",
+    "check_db_health",
 ]
