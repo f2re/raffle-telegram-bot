@@ -9,7 +9,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 
 from app.config import settings
 from app.database.session import engine
-from app.database.init_db import init_database, check_db_health
+from app.database.init_db import init_database, check_db_health, ensure_enums_updated
 from app.handlers import start, payment, raffle, admin, withdrawal
 from app.services.ton_monitor import start_ton_monitor
 from app.services.ton_service import ton_service
@@ -33,7 +33,10 @@ async def on_startup(bot: Bot):
             logger.info("Database needs initialization...")
             await init_database(engine)
         else:
-            logger.info("Database is already initialized and healthy")
+            logger.info("Database exists, checking enum types...")
+            # Even if database exists, ensure enums are up to date (for TON support)
+            await ensure_enums_updated(engine)
+            logger.info("Database is ready")
 
         logger.success("✅ Database ready")
     except Exception as e:
