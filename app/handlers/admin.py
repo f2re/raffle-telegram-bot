@@ -100,53 +100,67 @@ async def process_min_participants(message: Message, state: FSMContext):
 
         await state.update_data(min_participants=min_participants)
 
-        # In STARS_ONLY mode, skip currency selection
-        if settings.STARS_ONLY:
+        # Determine which currency to use based on config
+        currency_type = None
+        entry_fee = None
+        commission = None
+        currency_symbol = None
+
+        # Priority: TON_ONLY > STARS_ONLY > ask user
+        if settings.TON_ONLY:
+            # Automatically use TON
+            currency_type = CurrencyType.TON
+            entry_fee = settings.TON_ENTRY_FEE
+            commission = settings.TON_COMMISSION_PERCENT
+            currency_symbol = "TON"
+        elif settings.STARS_ONLY:
             # Automatically use STARS
             currency_type = CurrencyType.STARS
             entry_fee = settings.STARS_ENTRY_FEE
             commission = settings.STARS_COMMISSION_PERCENT
-
-            await state.update_data(
-                currency_type=currency_type,
-                entry_fee=entry_fee,
-                commission=commission
-            )
-
-            # Create raffle immediately
-            data = await state.get_data()
-
-            async with get_session() as session:
-                raffle = await crud.create_raffle(
-                    session,
-                    min_participants=data["min_participants"],
-                    entry_fee_type=currency_type,
-                    entry_fee_amount=entry_fee,
-                    commission_percent=commission,
-                )
-
-                await message.answer(
-                    f"✅ <b>Розыгрыш создан!</b>\n\n"
-                    f"ID: #{raffle.id}\n"
-                    f"Минимум участников: {data['min_participants']}\n"
-                    f"Взнос: {entry_fee} ⭐\n"
-                    f"Комиссия: {commission}%\n\n"
-                    f"Розыгрыш активирован и готов к приему участников!",
-                    reply_markup=admin_menu(),
-                    parse_mode="HTML"
-                )
-
-                logger.info(f"Admin created raffle #{raffle.id}")
-
-            await state.clear()
+            currency_symbol = "⭐"
         else:
-            # Original behavior - ask for currency
+            # Ask user to choose between stars and rub
             await message.answer(
                 f"✅ Минимум участников: {min_participants}\n\n"
                 "Теперь выберите тип валюты для взноса:\n"
                 "Отправьте 'stars' для звезд или 'rub' для рублей",
             )
             await state.set_state(AdminStates.waiting_for_entry_fee)
+            return
+
+        # Auto-selected currency - create raffle immediately
+        await state.update_data(
+            currency_type=currency_type,
+            entry_fee=entry_fee,
+            commission=commission
+        )
+
+        data = await state.get_data()
+
+        async with get_session() as session:
+            raffle = await crud.create_raffle(
+                session,
+                min_participants=data["min_participants"],
+                entry_fee_type=currency_type,
+                entry_fee_amount=entry_fee,
+                commission_percent=commission,
+            )
+
+            await message.answer(
+                f"✅ <b>Розыгрыш создан!</b>\n\n"
+                f"ID: #{raffle.id}\n"
+                f"Минимум участников: {data['min_participants']}\n"
+                f"Взнос: {entry_fee} {currency_symbol}\n"
+                f"Комиссия: {commission}%\n\n"
+                f"Розыгрыш активирован и готов к приему участников!",
+                reply_markup=admin_menu(),
+                parse_mode="HTML"
+            )
+
+            logger.info(f"Admin created raffle #{raffle.id} with {currency_type.value}")
+
+        await state.clear()
 
     except ValueError:
         await message.answer("Пожалуйста, введите число!")
@@ -164,12 +178,19 @@ async def process_entry_fee(message: Message, state: FSMContext):
         currency_type = CurrencyType.STARS
         entry_fee = settings.STARS_ENTRY_FEE
         commission = settings.STARS_COMMISSION_PERCENT
+        currency_symbol = "⭐"
     elif currency_text == "rub":
         currency_type = CurrencyType.RUB
         entry_fee = settings.RUB_ENTRY_FEE
         commission = settings.RUB_COMMISSION_PERCENT
+        currency_symbol = "₽"
+    elif currency_text == "ton":
+        currency_type = CurrencyType.TON
+        entry_fee = settings.TON_ENTRY_FEE
+        commission = settings.TON_COMMISSION_PERCENT
+        currency_symbol = "TON"
     else:
-        await message.answer("Введите 'stars' или 'rub'")
+        await message.answer("Введите 'stars', 'rub' или 'ton'")
         return
 
     await state.update_data(
@@ -190,20 +211,18 @@ async def process_entry_fee(message: Message, state: FSMContext):
             commission_percent=commission,
         )
 
-        currency_name = "⭐" if currency_type == CurrencyType.STARS else "RUB"
-
         await message.answer(
             f"✅ <b>Розыгрыш создан!</b>\n\n"
             f"ID: #{raffle.id}\n"
             f"Минимум участников: {data['min_participants']}\n"
-            f"Взнос: {entry_fee} {currency_name}\n"
+            f"Взнос: {entry_fee} {currency_symbol}\n"
             f"Комиссия: {commission}%\n\n"
             f"Розыгрыш активирован и готов к приему участников!",
             reply_markup=admin_menu(),
             parse_mode="HTML"
         )
 
-        logger.info(f"Admin created raffle #{raffle.id}")
+        logger.info(f"Admin created raffle #{raffle.id} with {currency_type.value}")
 
     await state.clear()
 
@@ -233,7 +252,7 @@ async def callback_admin_current_raffle(callback: CallbackQuery):
         # Calculate with accurate arithmetic
         total_collected = raffle.entry_fee_amount * participants_count
 
-        # For stars, use integer arithmetic; for RUB, use proper rounding
+        # For stars, use integer arithmetic; for TON/RUB, use proper rounding
         if raffle.entry_fee_type == CurrencyType.STARS:
             commission = int(total_collected * raffle.commission_percent / 100)
             prize_pool = int(total_collected) - commission
@@ -241,7 +260,13 @@ async def callback_admin_current_raffle(callback: CallbackQuery):
             commission = round(total_collected * (raffle.commission_percent / 100), 2)
             prize_pool = round(total_collected - commission, 2)
 
-        currency_name = "⭐" if raffle.entry_fee_type == CurrencyType.STARS else "RUB"
+        # Set currency symbol
+        if raffle.entry_fee_type == CurrencyType.STARS:
+            currency_name = "⭐"
+        elif raffle.entry_fee_type == CurrencyType.TON:
+            currency_name = "TON"
+        else:
+            currency_name = "₽"
 
         # Format amounts based on currency type
         if raffle.entry_fee_type == CurrencyType.STARS:
@@ -413,14 +438,38 @@ async def callback_admin_settings(callback: CallbackQuery):
         await callback.answer("Доступ запрещен", show_alert=True)
         return
 
+    # Determine active payment method
+    active_currency = "TON 💎" if settings.TON_ONLY else ("Stars ⭐" if settings.STARS_ONLY else "Все валюты")
+
     settings_text = (
         "<b>⚙️ Настройки бота</b>\n\n"
-        f"⭐ Взнос (Stars): {settings.STARS_ENTRY_FEE}\n"
-        f"⭐ Комиссия (Stars): {settings.STARS_COMMISSION_PERCENT}%\n\n"
-        f"💳 Взнос (RUB): {settings.RUB_ENTRY_FEE}\n"
-        f"💳 Комиссия (RUB): {settings.RUB_COMMISSION_PERCENT}%\n\n"
-        f"👥 Минимум участников: {settings.MIN_PARTICIPANTS}\n\n"
-        f"🔒 Показывать username: {settings.SHOW_USERNAMES}\n\n"
+        f"💰 <b>Активная валюта:</b> {active_currency}\n\n"
+    )
+
+    if settings.TON_ONLY or not (settings.STARS_ONLY):
+        settings_text += (
+            f"💎 <b>TON:</b>\n"
+            f"  • Взнос: {settings.TON_ENTRY_FEE} TON\n"
+            f"  • Комиссия: {settings.TON_COMMISSION_PERCENT}%\n\n"
+        )
+
+    if settings.STARS_ONLY or not settings.TON_ONLY:
+        settings_text += (
+            f"⭐ <b>Stars:</b>\n"
+            f"  • Взнос: {settings.STARS_ENTRY_FEE} ⭐\n"
+            f"  • Комиссия: {settings.STARS_COMMISSION_PERCENT}%\n\n"
+        )
+
+    if not settings.TON_ONLY and not settings.STARS_ONLY:
+        settings_text += (
+            f"💳 <b>RUB:</b>\n"
+            f"  • Взнос: {settings.RUB_ENTRY_FEE} ₽\n"
+            f"  • Комиссия: {settings.RUB_COMMISSION_PERCENT}%\n\n"
+        )
+
+    settings_text += (
+        f"👥 Минимум участников: {settings.MIN_PARTICIPANTS}\n"
+        f"🔒 Показывать username: {'Да' if settings.SHOW_USERNAMES else 'Нет'}\n\n"
         f"Для изменения настроек отредактируйте .env файл"
     )
 
