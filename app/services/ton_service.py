@@ -448,6 +448,63 @@ class TonService:
 
         return None
 
+    def generate_payment_deep_link(
+        self,
+        amount_ton: float,
+        comment: str
+    ) -> Dict[str, str]:
+        """
+        Generate TON payment deep links for different wallets
+
+        Creates deep links that open TON wallets with pre-filled payment data.
+        Supports Tonkeeper, TON Wallet, and Telegram Wallet (@wallet).
+
+        Args:
+            amount_ton: Amount in TON to send
+            comment: Payment comment/memo
+
+        Returns:
+            Dictionary with deep links for different wallets:
+            - tonkeeper: Tonkeeper app link
+            - ton_wallet: Generic TON wallet link
+            - telegram_wallet: Telegram @wallet link
+        """
+        # Convert TON to nanoTON
+        amount_nano = int(amount_ton * 1_000_000_000)
+
+        # URL-encode the comment
+        from urllib.parse import quote
+
+        encoded_comment = quote(comment)
+
+        # Generate links for different wallets
+        links = {
+            # Tonkeeper (most popular)
+            "tonkeeper": (
+                f"https://app.tonkeeper.com/transfer/{self.wallet_address}"
+                f"?amount={amount_nano}&text={encoded_comment}"
+            ),
+
+            # Generic TON protocol link (works with most wallets)
+            "ton": (
+                f"ton://transfer/{self.wallet_address}"
+                f"?amount={amount_nano}&text={encoded_comment}"
+            ),
+
+            # Telegram Wallet (@wallet bot)
+            "telegram_wallet": (
+                f"https://t.me/wallet?startattach=wpay_order-orderId__"
+                f"{self.wallet_address}__{amount_nano}__{encoded_comment}"
+            ),
+        }
+
+        logger.debug(
+            f"Generated payment deep links: amount={amount_ton} TON, "
+            f"comment='{comment}'"
+        )
+
+        return links
+
     async def close(self):
         """Close TON client connection"""
         if self._client:

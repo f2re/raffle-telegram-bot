@@ -189,3 +189,61 @@ def admin_withdrawal_keyboard(withdrawal_id: int) -> InlineKeyboardMarkup:
     )
 
     return builder.as_markup()
+
+
+def ton_payment_keyboard(
+    tonkeeper_url: str,
+    ton_url: str,
+    raffle_id: int
+) -> InlineKeyboardMarkup:
+    """
+    Keyboard for TON payment with deep links
+
+    Args:
+        tonkeeper_url: Tonkeeper deep link
+        ton_url: Generic TON wallet deep link
+        raffle_id: Raffle ID for refresh callback
+
+    Returns:
+        InlineKeyboardMarkup with payment buttons
+    """
+    builder = InlineKeyboardBuilder()
+
+    # Main payment button (Tonkeeper - most popular)
+    builder.row(
+        InlineKeyboardButton(
+            text="💎 Открыть кошелек для оплаты",
+            url=tonkeeper_url
+        )
+    )
+
+    # Alternative wallet button
+    builder.row(
+        InlineKeyboardButton(
+            text="🔗 Другой TON кошелек",
+            url=ton_url
+        )
+    )
+
+    # Refresh button to check payment status
+    builder.row(
+        InlineKeyboardButton(
+            text="🔄 Проверить оплату",
+            callback_data=f"check_ton_payment_{raffle_id}"
+        )
+    )
+
+    # Manual payment option (fallback)
+    builder.row(
+        InlineKeyboardButton(
+            text="📋 Показать данные для ручного ввода",
+            callback_data=f"show_manual_ton_payment_{raffle_id}"
+        )
+    )
+
+    # Cancel button
+    builder.row(
+        InlineKeyboardButton(text="❌ Отмена", callback_data="back_to_menu")
+    )
+
+    return builder.as_markup()

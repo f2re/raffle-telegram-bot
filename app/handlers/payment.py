@@ -8,7 +8,7 @@ from app.database.models import CurrencyType, TransactionType, TransactionStatus
 from app.config import settings
 from app.services.payment_service import yookassa_service, PaymentError
 from app.services.ton_service import ton_service
-from app.keyboards.inline import back_button
+from app.keyboards.inline import back_button, ton_payment_keyboard
 
 router = Router()
 
@@ -128,7 +128,7 @@ async def callback_pay_rub(callback: CallbackQuery):
 
 @router.callback_query(F.data == "pay_ton")
 async def callback_pay_ton(callback: CallbackQuery):
-    """Handle payment with TON cryptocurrency"""
+    """Handle payment with TON cryptocurrency - improved UX with deep links"""
     async with get_session() as session:
         # Get current raffle
         raffle = await crud.get_active_raffle(session)
@@ -171,28 +171,142 @@ async def callback_pay_ton(callback: CallbackQuery):
         # Get entry fee
         entry_fee = raffle.entry_fee_amount
 
-        # Send payment instructions
+        # Generate deep links for different wallets
+        deep_links = ton_service.generate_payment_deep_link(
+            amount_ton=entry_fee,
+            comment=payment_comment
+        )
+
+        # Send payment instructions with deep link buttons
         await callback.message.edit_text(
-            f"💎 <b>Оплата через TON</b>\n\n"
-            f"Для участия в розыгрыше #{raffle.id}:\n\n"
-            f"1️⃣ Отправьте <b>{entry_fee:.4f} TON</b> на адрес:\n"
-            f"<code>{settings.TON_WALLET_ADDRESS}</code>\n\n"
-            f"2️⃣ В комментарии к платежу укажите:\n"
-            f"<code>{payment_comment}</code>\n\n"
-            f"⚠️ <b>ВАЖНО:</b> Обязательно укажите комментарий!\n"
-            f"Без комментария платеж не будет обработан.\n\n"
-            f"После отправки платежа бот автоматически зарегистрирует ваше участие в течение {settings.TON_TRANSACTION_CHECK_INTERVAL} секунд.\n\n"
-            f"💡 Используйте Tonkeeper, TON Wallet или @wallet для отправки.",
-            reply_markup=back_button(),
+            f"💎 <b>Оплата участия в розыгрыше #{raffle.id}</b>\n\n"
+            f"<b>Сумма:</b> {entry_fee:.4f} TON\n\n"
+            f"🚀 <b>Быстрая оплата:</b>\n"
+            f"Нажмите кнопку ниже - ваш TON кошелек откроется автоматически "
+            f"с уже заполненной суммой и комментарием!\n\n"
+            f"✅ После оплаты бот автоматически зарегистрирует ваше участие "
+            f"в течение {settings.TON_TRANSACTION_CHECK_INTERVAL} секунд.\n\n"
+            f"💡 <b>Совет:</b> Используйте кнопку '🔄 Проверить оплату' чтобы "
+            f"узнать статус обработки платежа.",
+            reply_markup=ton_payment_keyboard(
+                tonkeeper_url=deep_links["tonkeeper"],
+                ton_url=deep_links["ton"],
+                raffle_id=raffle.id
+            ),
             parse_mode="HTML"
         )
 
         logger.info(
-            f"TON payment instructions sent to user {user.telegram_id} "
-            f"for raffle {raffle.id}"
+            f"TON payment screen sent to user {user.telegram_id} "
+            f"for raffle {raffle.id} with deep links"
         )
 
     await callback.answer()
+
+
+@router.callback_query(F.data.startswith("check_ton_payment_"))
+async def callback_check_ton_payment(callback: CallbackQuery):
+    """Check TON payment status"""
+    raffle_id = int(callback.data.split("_")[3])
+
+    async with get_session() as session:
+        # Get user
+        user = await crud.get_user_by_telegram_id(session, callback.from_user.id)
+        if not user:
+            await callback.answer(
+                "Ошибка: пользователь не найден",
+                show_alert=True
+            )
+            return
+
+        # Check if user is already participating
+        participants = await crud.get_raffle_participants(session, raffle_id)
+        if any(p.user_id == user.id for p in participants):
+            await callback.answer(
+                "✅ Оплата получена! Вы уже участвуете в розыгрыше!",
+                show_alert=True
+            )
+            return
+
+        # Check if user has a pending transaction for this raffle
+        # (transaction exists but user not yet added as participant)
+        await callback.answer(
+            "⏳ Платеж еще не обработан.\n\n"
+            f"Обработка занимает до {settings.TON_TRANSACTION_CHECK_INTERVAL} секунд после отправки.\n"
+            "Если вы только что отправили - подождите немного и проверьте снова.",
+            show_alert=True
+        )
+
+    logger.info(
+        f"User {callback.from_user.id} checked payment status for raffle {raffle_id}"
+    )
+
+
+@router.callback_query(F.data.startswith("show_manual_ton_payment_"))
+async def callback_show_manual_ton_payment(callback: CallbackQuery):
+    """Show manual payment details for users who can't use deep links"""
+    raffle_id = int(callback.data.split("_")[4])
+
+    async with get_session() as session:
+        # Get raffle
+        raffle = await crud.get_raffle_by_id(session, raffle_id)
+        if not raffle:
+            await callback.answer("Розыгрыш не найден", show_alert=True)
+            return
+
+        # Get user
+        user = await crud.get_user_by_telegram_id(session, callback.from_user.id)
+        if not user:
+            await callback.answer("Ошибка: пользователь не найден", show_alert=True)
+            return
+
+        # Generate payment comment
+        payment_comment = ton_service.generate_payment_comment(
+            raffle_id=raffle.id,
+            user_id=user.id
+        )
+
+        # Get entry fee
+        entry_fee = raffle.entry_fee_amount
+
+        # Generate deep links again (for "back" navigation)
+        deep_links = ton_service.generate_payment_deep_link(
+            amount_ton=entry_fee,
+            comment=payment_comment
+        )
+
+        # Show manual payment instructions
+        await callback.message.edit_text(
+            f"📋 <b>Данные для ручного ввода</b>\n\n"
+            f"Если автоматическое открытие кошелька не работает, "
+            f"введите данные вручную:\n\n"
+            f"<b>Адрес получателя:</b>\n"
+            f"<code>{settings.TON_WALLET_ADDRESS}</code>\n\n"
+            f"<b>Сумма:</b>\n"
+            f"<code>{entry_fee:.4f}</code> TON\n\n"
+            f"<b>Комментарий (ОБЯЗАТЕЛЬНО):</b>\n"
+            f"<code>{payment_comment}</code>\n\n"
+            f"⚠️ <b>ВАЖНО:</b>\n"
+            f"• Без комментария платеж не будет обработан\n"
+            f"• Скопируйте комментарий точно как указано\n"
+            f"• Отправьте точную сумму {entry_fee:.4f} TON\n\n"
+            f"✅ После отправки платеж обработается автоматически "
+            f"в течение {settings.TON_TRANSACTION_CHECK_INTERVAL} секунд.\n\n"
+            f"💡 Для проверки статуса используйте кнопку '🔄 Проверить оплату'",
+            reply_markup=ton_payment_keyboard(
+                tonkeeper_url=deep_links["tonkeeper"],
+                ton_url=deep_links["ton"],
+                raffle_id=raffle.id
+            ),
+            parse_mode="HTML"
+        )
+
+    await callback.answer()
+
+    logger.info(
+        f"Manual payment details shown to user {callback.from_user.id} "
+        f"for raffle {raffle_id}"
+    )
 
 
 @router.pre_checkout_query()
