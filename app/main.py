@@ -8,7 +8,7 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.fsm.storage.memory import MemoryStorage
 
 from app.config import settings
-from app.database.session import init_db, run_migrations
+from app.database.session import init_db, run_migrations, validate_db_schema
 from app.handlers import start, payment, raffle, admin, withdrawal
 from app.services.ton_monitor import start_ton_monitor
 from app.services.ton_service import ton_service
@@ -30,6 +30,14 @@ async def on_startup(bot: Bot):
     except Exception as e:
         logger.error(f"Failed to run database migrations: {e}")
         logger.error("Bot cannot start until database migrations are applied successfully")
+        sys.exit(1)
+
+    # Validate and fix database schema (including enum fixes)
+    try:
+        await validate_db_schema()
+        logger.info("Database schema validated and fixed")
+    except Exception as e:
+        logger.error(f"Failed to validate database schema: {e}")
         sys.exit(1)
 
     # Initialize database
