@@ -35,9 +35,11 @@ async def create_enums(engine: AsyncEngine):
         """))
     # Transaction commits here, enum creation is persisted
 
-    # Second transaction: Check and add missing values (MUST be separate!)
-    async with engine.begin() as conn:
-        # Check if 'ton' value exists
+    # Second step: Check and add missing values
+    # CRITICAL: ALTER TYPE ADD VALUE must run OUTSIDE transaction block (PostgreSQL requirement)
+    # We must use raw connection with autocommit
+    async with engine.connect() as conn:
+        # First check if 'ton' exists (this can be in a transaction)
         result = await conn.execute(text("""
             SELECT EXISTS (
                 SELECT 1 FROM pg_enum e
@@ -49,19 +51,31 @@ async def create_enums(engine: AsyncEngine):
 
         if not ton_exists:
             logger.warning("Adding missing 'ton' value to currencytype enum...")
-            # Use basic ALTER TYPE without IF NOT EXISTS for older PostgreSQL compatibility
+            logger.info("Using autocommit mode (required by PostgreSQL for ALTER TYPE ADD VALUE)")
+
+            # ALTER TYPE ADD VALUE requires autocommit (cannot be in transaction block)
+            # We need to commit any pending transaction first, then run with autocommit
+            await conn.commit()  # Ensure no open transaction
+
+            # Get raw asyncpg connection for autocommit execution
+            raw_conn = await conn.get_raw_connection()
+            asyncpg_conn = raw_conn.driver_connection
+
             try:
-                await conn.execute(text("ALTER TYPE currencytype ADD VALUE 'ton'"))
+                # Execute directly on asyncpg connection (autocommit mode)
+                await asyncpg_conn.execute("ALTER TYPE currencytype ADD VALUE 'ton'")
                 logger.info("✅ Added 'ton' value to currencytype enum")
             except Exception as e:
+                error_msg = str(e).lower()
                 # If it fails because value already exists, that's OK
-                if "already exists" not in str(e):
+                if "already exists" in error_msg or "duplicate" in error_msg:
+                    logger.debug("'ton' value already exists (concurrent add)")
+                else:
+                    logger.error(f"Failed to add 'ton' enum value: {e}")
                     raise
-                logger.debug("'ton' value already exists (concurrent add)")
         else:
             logger.debug("✅ 'ton' value already exists in currencytype enum")
 
-    # Transaction commits here, enum value addition is persisted
     logger.debug("✅ currencytype enum ready")
 
     # Third transaction: Create other enum types
