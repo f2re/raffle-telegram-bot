@@ -38,8 +38,9 @@ async def create_enums(engine: AsyncEngine):
     # Second step: Check and add missing values
     # CRITICAL: ALTER TYPE ADD VALUE must run OUTSIDE transaction block (PostgreSQL requirement)
     # We must use raw connection with autocommit
+
+    # First check if 'ton' exists
     async with engine.connect() as conn:
-        # First check if 'ton' exists (this can be in a transaction)
         result = await conn.execute(text("""
             SELECT EXISTS (
                 SELECT 1 FROM pg_enum e
@@ -49,20 +50,18 @@ async def create_enums(engine: AsyncEngine):
         """))
         ton_exists = result.scalar()
 
-        if not ton_exists:
-            logger.warning("Adding missing 'ton' value to currencytype enum...")
-            logger.info("Using autocommit mode (required by PostgreSQL for ALTER TYPE ADD VALUE)")
+    if not ton_exists:
+        logger.warning("Adding missing 'ton' value to currencytype enum...")
+        logger.info("Using raw connection for ALTER TYPE ADD VALUE (PostgreSQL requirement)")
 
-            # ALTER TYPE ADD VALUE requires autocommit (cannot be in transaction block)
-            # We need to commit any pending transaction first, then run with autocommit
-            await conn.commit()  # Ensure no open transaction
-
-            # Get raw asyncpg connection for autocommit execution
-            raw_conn = await conn.get_raw_connection()
+        # Get raw connection and execute ALTER TYPE outside transaction
+        raw_conn = await engine.raw_connection()
+        try:
             asyncpg_conn = raw_conn.driver_connection
-
             try:
                 # Execute directly on asyncpg connection (autocommit mode)
+                # Note: PostgreSQL doesn't support IF NOT EXISTS for ALTER TYPE ADD VALUE
+                # We rely on exception handling for idempotency
                 await asyncpg_conn.execute("ALTER TYPE currencytype ADD VALUE 'ton'")
                 logger.info("✅ Added 'ton' value to currencytype enum")
             except Exception as e:
@@ -73,8 +72,10 @@ async def create_enums(engine: AsyncEngine):
                 else:
                     logger.error(f"Failed to add 'ton' enum value: {e}")
                     raise
-        else:
-            logger.debug("✅ 'ton' value already exists in currencytype enum")
+        finally:
+            await raw_conn.close()
+    else:
+        logger.debug("✅ 'ton' value already exists in currencytype enum")
 
     logger.debug("✅ currencytype enum ready")
 
