@@ -5,7 +5,7 @@ from loguru import logger
 
 from app.database.session import get_session
 from app.database import crud
-from app.keyboards.inline import main_menu, back_button
+from app.keyboards.inline import main_menu, back_button, balance_keyboard
 from app.config import settings
 
 router = Router()
@@ -60,10 +60,12 @@ async def cmd_start(message: Message):
 async def cmd_help(message: Message):
     """Handle /help command"""
     help_text = (
-        "<b>📖 Помощь</b>\n\n"
+        "<b>❓ Помощь</b>\n\n"
         "<b>Доступные команды:</b>\n"
         "/start - Главное меню\n"
         "/balance - Показать баланс\n"
+        "/raffle - Текущий розыгрыш\n"
+        "/history - История участия\n"
         "/help - Эта справка\n\n"
         "<b>Как участвовать:</b>\n"
         "1. Нажми 'Участвовать в розыгрыше'\n"
@@ -111,7 +113,7 @@ async def cmd_balance(message: Message):
                 f"💳 Рубли: {user.balance_rub:.2f} RUB"
             )
 
-        await message.answer(balance_text, reply_markup=back_button(), parse_mode="HTML")
+        await message.answer(balance_text, reply_markup=balance_keyboard(), parse_mode="HTML")
 
 
 @router.callback_query(F.data == "balance")
@@ -148,9 +150,39 @@ async def callback_balance(callback: CallbackQuery):
 
         await callback.message.edit_text(
             balance_text,
-            reply_markup=back_button(),
+            reply_markup=balance_keyboard(),
             parse_mode="HTML"
         )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "help")
+async def callback_help(callback: CallbackQuery):
+    """Handle help button"""
+    help_text = (
+        "<b>❓ Помощь</b>\n\n"
+        "<b>Доступные команды:</b>\n"
+        "/start - Главное меню\n"
+        "/balance - Показать баланс\n"
+        "/raffle - Текущий розыгрыш\n"
+        "/history - История участия\n"
+        "/help - Эта справка\n\n"
+        "<b>Как участвовать:</b>\n"
+        "1. Нажми 'Участвовать в розыгрыше'\n"
+        "2. Выбери способ оплаты\n"
+        "3. Оплати взнос\n"
+        "4. Жди результатов!\n\n"
+        "<b>Честность:</b>\n"
+        "Победитель определяется с помощью Random.org API.\n"
+        "Каждый розыгрыш можно проверить по специальной ссылке.\n\n"
+        "Удачи! 🍀"
+    )
+
+    await callback.message.edit_text(
+        help_text,
+        reply_markup=back_button(),
+        parse_mode="HTML"
+    )
     await callback.answer()
 
 
@@ -180,7 +212,7 @@ async def callback_rules(callback: CallbackQuery):
         )
 
     rules_text = (
-        "<b>📜 Правила участия</b>\n\n"
+        "<b>ℹ️ Правила участия</b>\n\n"
         "<b>1. Вступительный взнос:</b>\n"
         f"{entry_fee_text}\n\n"
         "<b>2. Минимум участников:</b>\n"

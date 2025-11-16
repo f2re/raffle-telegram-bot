@@ -1,5 +1,7 @@
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
+import subprocess
+import sys
 
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.pool import NullPool
@@ -25,6 +27,39 @@ AsyncSessionLocal = async_sessionmaker(
     autocommit=False,
     autoflush=False,
 )
+
+
+async def run_migrations():
+    """
+    Run Alembic migrations to bring database up to date
+
+    This function runs 'alembic upgrade head' programmatically
+    Returns True if successful, raises exception on failure
+    """
+    try:
+        logger.info("Running database migrations...")
+
+        # Run alembic upgrade head
+        result = subprocess.run(
+            [sys.executable, "-m", "alembic", "upgrade", "head"],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+
+        logger.info("Database migrations completed successfully")
+        logger.debug(f"Migration output: {result.stdout}")
+
+        return True
+
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Migration failed with exit code {e.returncode}")
+        logger.error(f"STDOUT: {e.stdout}")
+        logger.error(f"STDERR: {e.stderr}")
+        raise RuntimeError(f"Database migration failed: {e.stderr}")
+    except Exception as e:
+        logger.error(f"Unexpected error running migrations: {e}")
+        raise
 
 
 async def init_db():
