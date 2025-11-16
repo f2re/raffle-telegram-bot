@@ -58,7 +58,7 @@ def format_currency_amount(amount: float, currency: CurrencyType) -> str:
 
     Args:
         amount: Amount to format
-        currency: Currency type (STARS or RUB)
+        currency: Currency type (STARS, RUB, or TON)
 
     Returns:
         Formatted string with amount and currency
@@ -66,6 +66,9 @@ def format_currency_amount(amount: float, currency: CurrencyType) -> str:
     if currency == CurrencyType.STARS:
         # Stars are always integers
         return f"{int(amount)} ⭐"
+    elif currency == CurrencyType.TON:
+        # TON amounts are shown with 2 decimal places
+        return f"{amount:.2f} TON"
     else:
         # Rubles are rounded to integers
         return f"{round_rub_amount(amount)} ₽"
@@ -77,7 +80,7 @@ def validate_withdrawal_amount(amount: float, currency: CurrencyType) -> tuple[b
 
     Args:
         amount: Requested withdrawal amount
-        currency: Currency type (STARS or RUB)
+        currency: Currency type (STARS, RUB, or TON)
 
     Returns:
         Tuple of (is_valid, error_message)
@@ -90,6 +93,11 @@ def validate_withdrawal_amount(amount: float, currency: CurrencyType) -> tuple[b
         min_amount = settings.MIN_WITHDRAWAL_STARS
         if amount < min_amount:
             return False, f"Минимальная сумма для вывода: {min_amount} ⭐"
+    elif currency == CurrencyType.TON:
+        # TON has a minimum withdrawal amount
+        min_amount = settings.MIN_WITHDRAWAL_TON
+        if amount < min_amount:
+            return False, f"Минимальная сумма для вывода: {min_amount} TON"
     else:
         # Rubles have a minimum withdrawal amount
         min_amount = settings.MIN_WITHDRAWAL_RUB
