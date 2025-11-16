@@ -159,11 +159,14 @@ cp .env.example .env
 # Start infrastructure
 docker-compose up -d postgres redis
 
-# Run database migrations
-alembic upgrade head
+# Database is automatically initialized on bot startup
+# No manual migration commands needed!
 
 # Start bot
 python app/main.py
+
+# Or manually initialize database first (optional):
+python init_database.py
 ```
 
 ### Testing
@@ -182,18 +185,20 @@ pytest tests/test_raffle.py -v
 ### Database Operations
 
 ```bash
-# Create new migration
-alembic revision --autogenerate -m "description"
+# Initialize database (automatic on bot startup)
+python init_database.py
 
-# Apply migrations
-alembic upgrade head
-
-# Rollback one migration
-alembic downgrade -1
+# Reset database (WARNING: deletes all data!)
+python reset_database.py
 
 # Backup database
 docker-compose exec postgres pg_dump -U postgres raffle_bot > backup.sql
+
+# Restore database
+docker-compose exec -T postgres psql -U postgres raffle_bot < backup.sql
 ```
+
+**Note:** This project uses automatic database initialization instead of migrations. The database schema is created from SQLAlchemy models on startup. When you update models in `app/database/models.py`, the changes will be applied automatically on next bot start.
 
 ## Security & Validation
 

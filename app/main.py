@@ -8,7 +8,8 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.fsm.storage.memory import MemoryStorage
 
 from app.config import settings
-from app.database.session import init_db, run_migrations, validate_db_schema
+from app.database.session import engine
+from app.database.init_db import init_database, check_db_health
 from app.handlers import start, payment, raffle, admin, withdrawal
 from app.services.ton_monitor import start_ton_monitor
 from app.services.ton_service import ton_service
@@ -23,29 +24,21 @@ async def on_startup(bot: Bot):
 
     logger.info("Bot is starting...")
 
-    # Run database migrations automatically
+    # Initialize database (creates all enums and tables)
     try:
-        await run_migrations()
-        logger.info("Database migrations applied successfully")
-    except Exception as e:
-        logger.error(f"Failed to run database migrations: {e}")
-        logger.error("Bot cannot start until database migrations are applied successfully")
-        sys.exit(1)
+        # Check if database is healthy
+        is_healthy = await check_db_health(engine)
 
-    # Validate and fix database schema (including enum fixes)
-    try:
-        await validate_db_schema()
-        logger.info("Database schema validated and fixed")
-    except Exception as e:
-        logger.error(f"Failed to validate database schema: {e}")
-        sys.exit(1)
+        if not is_healthy:
+            logger.info("Database needs initialization...")
+            await init_database(engine)
+        else:
+            logger.info("Database is already initialized and healthy")
 
-    # Initialize database
-    try:
-        await init_db()
-        logger.info("Database initialized successfully")
+        logger.success("✅ Database ready")
     except Exception as e:
         logger.error(f"Failed to initialize database: {e}")
+        logger.error("Bot cannot start until database is initialized successfully")
         sys.exit(1)
 
     # Start TON transaction monitor if TON_ONLY mode enabled
