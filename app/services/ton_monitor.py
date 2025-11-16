@@ -82,6 +82,7 @@ class TonTransactionMonitor:
             transactions = await ton_service.check_incoming_transactions()
 
             if not transactions:
+                logger.debug("No new transactions to process")
                 return
 
             logger.info(f"Found {len(transactions)} new TON transactions")
@@ -91,9 +92,11 @@ class TonTransactionMonitor:
                 await self._process_transaction(tx)
 
         except TonPaymentError as e:
-            logger.error(f"TON payment error: {e}")
+            # Log error but continue monitoring (could be temporary network issue)
+            logger.warning(f"TON payment error (will retry on next check): {e}")
         except Exception as e:
-            logger.error(f"Unexpected error checking transactions: {e}", exc_info=True)
+            # Log unexpected errors but continue monitoring
+            logger.error(f"Unexpected error checking transactions (will retry on next check): {e}", exc_info=True)
 
     async def _process_transaction(self, tx: dict):
         """

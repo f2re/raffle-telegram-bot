@@ -107,6 +107,11 @@ class TonService:
             # Get account state
             account = await client.get_account_state(address)
 
+            # Check if account is initialized
+            if account is None:
+                logger.warning(f"Account {self.wallet_address} is not initialized on blockchain")
+                return 0.0
+
             # Convert from nanoTON to TON
             balance_nano = account.balance
             balance_ton = balance_nano / 1_000_000_000
@@ -144,11 +149,31 @@ class TonService:
             client = await self._get_client()
             address = Address(self.wallet_address)
 
+            # Check if account is initialized first
+            account = await client.get_account_state(address)
+            if account is None:
+                logger.debug(f"Account {self.wallet_address} is not initialized, no transactions to check")
+                return []
+
+            # Check if account has transaction history
+            if not hasattr(account, 'last_trans_lt') or account.last_trans_lt is None:
+                logger.debug(f"Account {self.wallet_address} has no transaction history yet")
+                return []
+
             # Get recent transactions
-            transactions = await client.get_transactions(
-                address=address,
-                count=limit
-            )
+            try:
+                transactions = await client.get_transactions(
+                    address=address,
+                    count=limit
+                )
+            except (AttributeError, TypeError) as e:
+                logger.debug(f"Cannot fetch transactions (account might be empty): {e}")
+                return []
+
+            # Handle None or empty transactions
+            if not transactions:
+                logger.debug("No transactions found")
+                return []
 
             incoming_txs = []
 
