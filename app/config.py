@@ -26,6 +26,9 @@ class Settings(BaseSettings):
     TON_WALLET_MNEMONIC: str  # Bot's wallet mnemonic for sending payouts (keep secure!)
     TON_NETWORK: str = "mainnet"  # "mainnet" or "testnet"
 
+    # TON Connect Configuration
+    TON_CONNECT_MANIFEST_URL: str  # URL to tonconnect-manifest.json file (must be publicly accessible)
+
     # Random.org API
     RANDOM_ORG_API_KEY: str
 

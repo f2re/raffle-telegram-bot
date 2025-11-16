@@ -247,3 +247,129 @@ def ton_payment_keyboard(
     )
 
     return builder.as_markup()
+
+
+def ton_connect_keyboard(
+    is_connected: bool,
+    connection_url: str = None,
+    wallet_address: str = None
+) -> InlineKeyboardMarkup:
+    """
+    Keyboard for TON Connect wallet management
+
+    Args:
+        is_connected: Whether wallet is connected
+        connection_url: Connection URL (if not connected)
+        wallet_address: Wallet address (if connected)
+
+    Returns:
+        InlineKeyboardMarkup with TON Connect buttons
+    """
+    builder = InlineKeyboardBuilder()
+
+    if is_connected:
+        # Wallet connected - show disconnect option
+        builder.row(
+            InlineKeyboardButton(
+                text="📊 Информация о кошельке",
+                callback_data="ton_wallet_info"
+            )
+        )
+        builder.row(
+            InlineKeyboardButton(
+                text="🔄 Проверить подключение",
+                callback_data="check_ton_connection"
+            )
+        )
+        builder.row(
+            InlineKeyboardButton(
+                text="❌ Отключить кошелек",
+                callback_data="disconnect_ton_wallet"
+            )
+        )
+    else:
+        # Wallet not connected - show connection option
+        if connection_url:
+            # Connection URL available - show connect button
+            builder.row(
+                InlineKeyboardButton(
+                    text="🔗 Открыть кошелек для подключения",
+                    url=connection_url
+                )
+            )
+            builder.row(
+                InlineKeyboardButton(
+                    text="🔄 Проверить подключение",
+                    callback_data="check_ton_connection"
+                )
+            )
+        else:
+            # No connection URL - show initial connect button
+            builder.row(
+                InlineKeyboardButton(
+                    text="🔗 Подключить кошелек",
+                    callback_data="connect_ton_wallet"
+                )
+            )
+
+    # Back button
+    builder.row(
+        InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_menu")
+    )
+
+    return builder.as_markup()
+
+
+def ton_payment_choice_keyboard(
+    is_wallet_connected: bool,
+    raffle_id: int,
+    entry_fee: float
+) -> InlineKeyboardMarkup:
+    """
+    Keyboard for choosing TON payment method
+
+    Args:
+        is_wallet_connected: Whether TON Connect wallet is connected
+        raffle_id: Raffle ID
+        entry_fee: Entry fee in TON
+
+    Returns:
+        InlineKeyboardMarkup with payment choice buttons
+    """
+    builder = InlineKeyboardBuilder()
+
+    if is_wallet_connected:
+        # Wallet connected - offer quick payment via TON Connect
+        builder.row(
+            InlineKeyboardButton(
+                text=f"⚡ Оплатить через TON Connect ({entry_fee:.2f} TON)",
+                callback_data=f"pay_ton_connect_{raffle_id}"
+            )
+        )
+        builder.row(
+            InlineKeyboardButton(
+                text=f"💎 Оплатить вручную ({entry_fee:.2f} TON)",
+                callback_data="pay_ton"
+            )
+        )
+    else:
+        # Wallet not connected - offer to connect or pay manually
+        builder.row(
+            InlineKeyboardButton(
+                text=f"🔗 Подключить кошелек и оплатить",
+                callback_data="connect_and_pay_ton"
+            )
+        )
+        builder.row(
+            InlineKeyboardButton(
+                text=f"💎 Оплатить без подключения ({entry_fee:.2f} TON)",
+                callback_data="pay_ton"
+            )
+        )
+
+    # Back button
+    builder.row(
+        InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_menu")
+    )
+
+    return builder.as_markup()

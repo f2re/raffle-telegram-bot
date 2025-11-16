@@ -7,6 +7,7 @@ from sqlalchemy.orm import selectinload
 
 from .models import (
     User, Raffle, Participant, Transaction, BotSettings, WithdrawalRequest, PayoutRequest,
+    TonConnectSession,
     CurrencyType, RaffleStatus, TransactionType, TransactionStatus, WithdrawalStatus, PayoutStatus
 )
 
@@ -525,3 +526,94 @@ async def update_payout_status(
 
     await session.flush()
     return payout
+
+
+# ==================== TON CONNECT OPERATIONS ====================
+
+async def create_ton_connect_session(
+    session: AsyncSession,
+    user_id: int,
+    wallet_address: str,
+    session_data: Optional[dict] = None,
+    wallet_state_init: Optional[str] = None,
+    wallet_public_key: Optional[str] = None,
+) -> TonConnectSession:
+    """Create new TON Connect session"""
+    # Deactivate all previous sessions for this user
+    await session.execute(
+        update(TonConnectSession)
+        .where(TonConnectSession.user_id == user_id)
+        .where(TonConnectSession.is_active == True)
+        .values(is_active=False, disconnected_at=datetime.utcnow())
+    )
+
+    ton_session = TonConnectSession(
+        user_id=user_id,
+        wallet_address=wallet_address,
+        session_data=session_data,
+        wallet_state_init=wallet_state_init,
+        wallet_public_key=wallet_public_key,
+        is_active=True,
+    )
+    session.add(ton_session)
+    await session.flush()
+    return ton_session
+
+
+async def get_active_ton_connect_session(
+    session: AsyncSession,
+    user_id: int,
+) -> Optional[TonConnectSession]:
+    """Get active TON Connect session for user"""
+    result = await session.execute(
+        select(TonConnectSession)
+        .where(TonConnectSession.user_id == user_id)
+        .where(TonConnectSession.is_active == True)
+    )
+    return result.scalar_one_or_none()
+
+
+async def update_ton_connect_session(
+    session: AsyncSession,
+    session_id: int,
+    session_data: Optional[dict] = None,
+) -> TonConnectSession:
+    """Update TON Connect session data"""
+    ton_session = await session.get(TonConnectSession, session_id)
+    if not ton_session:
+        raise ValueError(f"TON Connect session {session_id} not found")
+
+    if session_data is not None:
+        ton_session.session_data = session_data
+
+    ton_session.last_used = datetime.utcnow()
+    await session.flush()
+    return ton_session
+
+
+async def disconnect_ton_connect_session(
+    session: AsyncSession,
+    user_id: int,
+) -> bool:
+    """Disconnect (deactivate) TON Connect session for user"""
+    result = await session.execute(
+        update(TonConnectSession)
+        .where(TonConnectSession.user_id == user_id)
+        .where(TonConnectSession.is_active == True)
+        .values(is_active=False, disconnected_at=datetime.utcnow())
+    )
+    await session.flush()
+    return result.rowcount > 0
+
+
+async def get_ton_connect_session_by_wallet(
+    session: AsyncSession,
+    wallet_address: str,
+) -> Optional[TonConnectSession]:
+    """Get TON Connect session by wallet address"""
+    result = await session.execute(
+        select(TonConnectSession)
+        .where(TonConnectSession.wallet_address == wallet_address)
+        .where(TonConnectSession.is_active == True)
+    )
+    return result.scalar_one_or_none()

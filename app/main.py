@@ -10,9 +10,10 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from app.config import settings
 from app.database.session import engine
 from app.database.init_db import init_database, check_db_health, ensure_enums_updated
-from app.handlers import start, payment, raffle, admin, withdrawal
+from app.handlers import start, payment, raffle, admin, withdrawal, ton_connect
 from app.services.ton_monitor import start_ton_monitor
 from app.services.ton_service import ton_service
+from app.services.ton_connect_service import ton_connect_service
 
 # Global TON monitor instance
 ton_monitor = None
@@ -113,6 +114,13 @@ async def on_shutdown(bot: Bot):
     except Exception as e:
         logger.error(f"Error closing TON service: {e}")
 
+    # Close TON Connect service
+    try:
+        await ton_connect_service.close()
+        logger.info("TON Connect service closed")
+    except Exception as e:
+        logger.error(f"Error closing TON Connect service: {e}")
+
     # Notify admins
     admin_ids = settings.get_admin_ids()
     if admin_ids:
@@ -158,6 +166,7 @@ async def main():
     # Register routers
     dp.include_router(start.router)
     dp.include_router(payment.router)
+    dp.include_router(ton_connect.router)
     dp.include_router(raffle.router)
     dp.include_router(withdrawal.router)
     dp.include_router(admin.router)
