@@ -22,6 +22,7 @@ router = Router()
 class TonConnectStates(StatesGroup):
     """States for TON Connect flow"""
     waiting_connection = State()
+    waiting_connection_for_payment = State()  # When connecting wallet to pay for raffle
 
 
 @router.callback_query(F.data == "connect_ton_wallet")
@@ -136,18 +137,77 @@ async def wait_for_connection(
         )
 
         if wallet_info:
-            # Connection successful
-            await message.edit_text(
-                f"✅ <b>Кошелек успешно подключен!</b>\n\n"
-                f"<b>Адрес:</b> <code>{wallet_info['address']}</code>\n\n"
-                f"Теперь вы можете оплачивать участие в розыгрышах в один клик!\n"
-                f"Бот будет автоматически отправлять запросы на оплату в ваш кошелек.",
-                reply_markup=ton_connect_keyboard(
-                    is_connected=True,
-                    wallet_address=wallet_info['address']
-                ),
-                parse_mode="HTML"
-            )
+            # Get current state to check if connecting for payment
+            state_data = await state.get_data()
+            current_state = await state.get_state()
+            raffle_id = state_data.get('raffle_id')
+
+            # Check if user was connecting wallet to pay for a raffle
+            if current_state == TonConnectStates.waiting_connection_for_payment.state and raffle_id:
+                # Redirect to payment screen
+                from app.keyboards.inline import ton_payment_choice_keyboard
+
+                async with get_session() as session:
+                    raffle = await crud.get_raffle_by_id(session, raffle_id)
+                    if raffle:
+                        entry_fee = raffle.entry_fee_amount
+
+                        await message.edit_text(
+                            f"✅ <b>Кошелек успешно подключен!</b>\n\n"
+                            f"<b>Адрес:</b> <code>{wallet_info['address'][:8]}...{wallet_info['address'][-4:]}</code>\n\n"
+                            f"Переходим к оплате розыгрыша...",
+                            parse_mode="HTML"
+                        )
+
+                        # Wait a moment for user to see the success message
+                        import asyncio
+                        await asyncio.sleep(1.5)
+
+                        # Show payment screen
+                        await message.edit_text(
+                            f"💎 <b>Оплата участия в розыгрыше #{raffle.id}</b>\n\n"
+                            f"<b>Сумма:</b> {entry_fee:.4f} TON\n\n"
+                            f"🔗 <b>Подключенный кошелек:</b>\n"
+                            f"<code>{wallet_info['address'][:8]}...{wallet_info['address'][-4:]}</code>\n\n"
+                            f"⚡ <b>Быстрая оплата:</b>\n"
+                            f"Нажмите кнопку ниже - кошелек откроется автоматически с готовой транзакцией!",
+                            reply_markup=ton_payment_choice_keyboard(
+                                is_wallet_connected=True,
+                                raffle_id=raffle.id,
+                                entry_fee=entry_fee
+                            ),
+                            parse_mode="HTML"
+                        )
+
+                        logger.info(
+                            f"Wallet connected for payment - user {telegram_id}, "
+                            f"raffle {raffle_id}, redirecting to payment"
+                        )
+                    else:
+                        # Raffle not found - show generic success message
+                        await message.edit_text(
+                            f"✅ <b>Кошелек успешно подключен!</b>\n\n"
+                            f"<b>Адрес:</b> <code>{wallet_info['address']}</code>\n\n"
+                            f"Теперь вы можете оплачивать участие в розыгрышах в один клик!",
+                            reply_markup=ton_connect_keyboard(
+                                is_connected=True,
+                                wallet_address=wallet_info['address']
+                            ),
+                            parse_mode="HTML"
+                        )
+            else:
+                # Regular connection (not for payment) - show success message
+                await message.edit_text(
+                    f"✅ <b>Кошелек успешно подключен!</b>\n\n"
+                    f"<b>Адрес:</b> <code>{wallet_info['address']}</code>\n\n"
+                    f"Теперь вы можете оплачивать участие в розыгрышах в один клик!\n"
+                    f"Бот будет автоматически отправлять запросы на оплату в ваш кошелек.",
+                    reply_markup=ton_connect_keyboard(
+                        is_connected=True,
+                        wallet_address=wallet_info['address']
+                    ),
+                    parse_mode="HTML"
+                )
 
             logger.info(
                 f"Wallet connected successfully for user {telegram_id}: "

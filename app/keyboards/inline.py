@@ -348,8 +348,8 @@ def ton_payment_choice_keyboard(
         )
         builder.row(
             InlineKeyboardButton(
-                text=f"💎 Оплатить вручную ({entry_fee:.2f} TON)",
-                callback_data="pay_ton"
+                text=f"💎 Оплатить вручную (Deep Links)",
+                callback_data=f"pay_ton_manual_{raffle_id}"
             )
         )
     else:
@@ -363,7 +363,7 @@ def ton_payment_choice_keyboard(
         builder.row(
             InlineKeyboardButton(
                 text=f"💎 Оплатить без подключения ({entry_fee:.2f} TON)",
-                callback_data="pay_ton"
+                callback_data=f"pay_ton_manual_{raffle_id}"
             )
         )
 
