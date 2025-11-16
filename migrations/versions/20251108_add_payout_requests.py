@@ -48,9 +48,10 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(['winner_id'], ['users.id'], ),
         sa.ForeignKeyConstraint(['completed_by'], ['users.id'], ),
         sa.ForeignKeyConstraint(['rejected_by'], ['users.id'], ),
-        sa.PrimaryKeyConstraint('id')
+        sa.PrimaryKeyConstraint('id'),
+        if_not_exists=True
     )
-    op.create_index(op.f('ix_payout_requests_id'), 'payout_requests', ['id'], unique=False)
+    op.create_index(op.f('ix_payout_requests_id'), 'payout_requests', ['id'], unique=False, if_not_exists=True)
 
 
 def downgrade() -> None:
