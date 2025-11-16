@@ -19,26 +19,33 @@ async def create_enums(engine: AsyncEngine):
     This must be done before creating tables that use these enums
     """
     async with engine.begin() as conn:
-        # Drop existing enums if they exist (for clean slate)
         logger.info("Checking and creating PostgreSQL enums...")
 
-        # Create currencytype enum
+        # Create currencytype enum - create new or do nothing if exists
         await conn.execute(text("""
             DO $$ BEGIN
                 CREATE TYPE currencytype AS ENUM ('stars', 'rub', 'ton');
             EXCEPTION
-                WHEN duplicate_object THEN
-                    -- Type already exists, check if 'ton' value exists
-                    IF NOT EXISTS (
-                        SELECT 1 FROM pg_enum e
-                        JOIN pg_type t ON e.enumtypid = t.oid
-                        WHERE t.typname = 'currencytype' AND e.enumlabel = 'ton'
-                    ) THEN
-                        -- Add 'ton' value if missing
-                        ALTER TYPE currencytype ADD VALUE 'ton';
-                    END IF;
+                WHEN duplicate_object THEN NULL;
             END $$;
         """))
+
+        # Separately check and add 'ton' value if it's missing from existing enum
+        # This must be done outside the DO block for proper transaction handling
+        result = await conn.execute(text("""
+            SELECT EXISTS (
+                SELECT 1 FROM pg_enum e
+                JOIN pg_type t ON e.enumtypid = t.oid
+                WHERE t.typname = 'currencytype' AND e.enumlabel = 'ton'
+            )
+        """))
+        ton_exists = result.scalar()
+
+        if not ton_exists:
+            logger.warning("Adding missing 'ton' value to currencytype enum...")
+            await conn.execute(text("ALTER TYPE currencytype ADD VALUE IF NOT EXISTS 'ton'"))
+            logger.info("✅ Added 'ton' value to currencytype enum")
+
         logger.debug("✅ currencytype enum ready")
 
         # Create rafflestatus enum
@@ -94,7 +101,7 @@ async def create_enums(engine: AsyncEngine):
         logger.info("All PostgreSQL enums created successfully")
 
 
-async def init_database(engine: AsyncEngine):
+async def init_database(engine: AsyncEngine, force_enum_check: bool = True):
     """
     Initialize database from scratch
 
@@ -102,11 +109,15 @@ async def init_database(engine: AsyncEngine):
     1. Creates all PostgreSQL enum types
     2. Creates all tables using SQLAlchemy models
     3. Is idempotent (can be run multiple times safely)
+
+    Args:
+        engine: SQLAlchemy async engine
+        force_enum_check: If True, always check and fix enums even if tables exist
     """
     try:
         logger.info("Initializing database...")
 
-        # Step 1: Create all enum types first
+        # Step 1: Always ensure enums are correct (critical for TON support)
         await create_enums(engine)
 
         # Step 2: Create all tables
@@ -120,6 +131,22 @@ async def init_database(engine: AsyncEngine):
 
     except Exception as e:
         logger.error(f"Database initialization failed: {e}", exc_info=True)
+        raise
+
+
+async def ensure_enums_updated(engine: AsyncEngine):
+    """
+    Ensure all enum types have the latest values
+
+    This is useful for updating existing databases without full reinitialization
+    """
+    try:
+        logger.info("Ensuring enum types are up to date...")
+        await create_enums(engine)
+        logger.success("✅ Enum types updated successfully")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to update enum types: {e}", exc_info=True)
         raise
 
 
