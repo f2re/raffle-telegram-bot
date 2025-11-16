@@ -15,10 +15,11 @@ def main_menu() -> InlineKeyboardMarkup:
         InlineKeyboardButton(text="💸 Вывод средств", callback_data="withdraw")
     )
     builder.row(
-        InlineKeyboardButton(text="📊 Текущий розыгрыш", callback_data="current_raffle"),
+        InlineKeyboardButton(text="🎁 Текущий розыгрыш", callback_data="current_raffle"),
         InlineKeyboardButton(text="📜 История", callback_data="history")
     )
     builder.row(
+        InlineKeyboardButton(text="❓ Помощь", callback_data="help"),
         InlineKeyboardButton(text="ℹ️ Правила", callback_data="rules")
     )
 

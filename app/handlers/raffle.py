@@ -1,5 +1,6 @@
 from aiogram import Router, F, Bot
-from aiogram.types import CallbackQuery
+from aiogram.types import CallbackQuery, Message
+from aiogram.filters import Command
 from loguru import logger
 
 from app.database.session import get_session
@@ -13,6 +14,145 @@ from app.services.ton_service import ton_service, TonPaymentError
 from app.utils import format_user_display_name, round_rub_amount
 
 router = Router()
+
+
+@router.message(Command("raffle"))
+async def cmd_raffle(message: Message):
+    """Handle /raffle command - show current raffle"""
+    async with get_session() as session:
+        raffle = await crud.get_active_raffle(session)
+
+        if not raffle:
+            await message.answer(
+                "🎁 <b>Розыгрыш</b>\n\n"
+                "Сейчас нет активного розыгрыша.\n"
+                "Следующий розыгрыш начнется скоро!",
+                reply_markup=back_button(),
+                parse_mode="HTML"
+            )
+            return
+
+        participants = await crud.get_raffle_participants(session, raffle.id)
+        participants_count = len(participants)
+
+        # Calculate prize pool with accurate arithmetic
+        total_collected = raffle.entry_fee_amount * participants_count
+
+        # For stars, use integer arithmetic; for RUB, use proper rounding
+        if raffle.entry_fee_type == CurrencyType.STARS:
+            commission = int(total_collected * raffle.commission_percent / 100)
+            prize_pool = int(total_collected) - commission
+        elif raffle.entry_fee_type == CurrencyType.TON:
+            commission = round(total_collected * (raffle.commission_percent / 100), 4)
+            prize_pool = round(total_collected - commission, 4)
+        else:
+            commission = round(total_collected * (raffle.commission_percent / 100), 2)
+            prize_pool = round(total_collected - commission, 2)
+
+        currency_symbol = "⭐" if raffle.entry_fee_type == CurrencyType.STARS else ("💎" if raffle.entry_fee_type == CurrencyType.TON else "💳")
+        currency_name = "⭐" if raffle.entry_fee_type == CurrencyType.STARS else ("TON" if raffle.entry_fee_type == CurrencyType.TON else "RUB")
+
+        # Format amounts based on currency type
+        if raffle.entry_fee_type == CurrencyType.STARS:
+            entry_fee_str = f"{int(raffle.entry_fee_amount)}"
+            total_str = f"{int(total_collected)}"
+            commission_str = f"{int(commission)}"
+            prize_str = f"{int(prize_pool)}"
+        elif raffle.entry_fee_type == CurrencyType.TON:
+            entry_fee_str = f"{raffle.entry_fee_amount:.4f}"
+            total_str = f"{total_collected:.4f}"
+            commission_str = f"{commission:.4f}"
+            prize_str = f"{prize_pool:.4f}"
+        else:
+            entry_fee_str = f"{raffle.entry_fee_amount:.2f}"
+            total_str = f"{total_collected:.2f}"
+            commission_str = f"{commission:.2f}"
+            prize_str = f"{prize_pool:.2f}"
+
+        raffle_text = (
+            f"🎁 <b>Текущий розыгрыш #{raffle.id}</b>\n\n"
+            f"Статус: {get_status_emoji(raffle.status)} {raffle.status.value}\n"
+            f"Взнос: {currency_symbol} {entry_fee_str} {currency_name}\n"
+            f"Участников: {participants_count}/{raffle.min_participants}\n\n"
+            f"💰 <b>Призовой фонд:</b>\n"
+            f"Собрано: {total_str} {currency_name}\n"
+            f"Комиссия ({int(raffle.commission_percent)}%): {commission_str} {currency_name}\n"
+            f"<b>Приз победителю: {prize_str} {currency_name}</b>\n\n"
+        )
+
+        if raffle.status == RaffleStatus.PENDING:
+            raffle_text += f"⏳ Ожидаем еще {raffle.min_participants - participants_count} участников"
+        elif raffle.status == RaffleStatus.ACTIVE:
+            raffle_text += "🔥 Розыгрыш активен! Скоро определим победителя!"
+        elif raffle.status == RaffleStatus.FINISHED and raffle.winner_id:
+            winner = await session.get(crud.User, raffle.winner_id)
+            # Get current user for privacy check
+            current_user = await crud.get_user_by_telegram_id(session, message.from_user.id)
+            current_user_id = current_user.id if current_user else None
+            winner_display = format_user_display_name(winner, current_user_id)
+            raffle_text += f"🏆 Победитель: {winner_display}"
+
+        await message.answer(
+            raffle_text,
+            reply_markup=raffle_info_keyboard(raffle.id),
+            parse_mode="HTML"
+        )
+
+
+@router.message(Command("history"))
+async def cmd_history(message: Message):
+    """Handle /history command - show user participation history"""
+    async with get_session() as session:
+        user = await crud.get_user_by_telegram_id(session, message.from_user.id)
+
+        if not user:
+            await message.answer(
+                "📜 <b>История участия</b>\n\n"
+                "Вы еще не участвовали в розыгрышах.",
+                reply_markup=back_button(),
+                parse_mode="HTML"
+            )
+            return
+
+        participations = await crud.get_user_participations(session, user.id, limit=10)
+
+        if not participations:
+            await message.answer(
+                "📜 <b>История участия</b>\n\n"
+                "Вы еще не участвовали в розыгрышах.",
+                reply_markup=back_button(),
+                parse_mode="HTML"
+            )
+            return
+
+        history_text = "📜 <b>История участия</b>\n\n"
+
+        for p in participations:
+            raffle = p.raffle
+            status_emoji = get_status_emoji(raffle.status)
+
+            history_text += f"{status_emoji} Розыгрыш #{raffle.id}\n"
+
+            if raffle.winner_id == user.id:
+                # Format prize based on currency type
+                if raffle.entry_fee_type == CurrencyType.STARS:
+                    prize_str = f"{int(raffle.prize_amount)}"
+                elif raffle.entry_fee_type == CurrencyType.TON:
+                    prize_str = f"{raffle.prize_amount:.4f}"
+                else:
+                    prize_str = f"{raffle.prize_amount:.2f}"
+                currency_name = "⭐" if raffle.entry_fee_type == CurrencyType.STARS else ("TON" if raffle.entry_fee_type == CurrencyType.TON else "RUB")
+                history_text += f"🏆 <b>Вы выиграли!</b> Приз: {prize_str} {currency_name}\n"
+            elif raffle.status == RaffleStatus.FINISHED:
+                history_text += "Не выиграли\n"
+
+            history_text += "\n"
+
+        await message.answer(
+            history_text,
+            reply_markup=back_button(),
+            parse_mode="HTML"
+        )
 
 
 @router.callback_query(F.data == "join_raffle")
