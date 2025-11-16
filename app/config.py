@@ -16,9 +16,15 @@ class Settings(BaseSettings):
     # Redis Configuration
     REDIS_URL: str = "redis://redis:6379/0"
 
-    # YooKassa Configuration (for RUB payments)
+    # YooKassa Configuration (for RUB payments) - DEPRECATED
     YOOKASSA_SHOP_ID: Optional[str] = None
     YOOKASSA_SECRET_KEY: Optional[str] = None
+
+    # TON Configuration
+    TON_CENTER_API_KEY: str  # API key for TON Center API
+    TON_WALLET_ADDRESS: str  # Bot's TON wallet address for receiving payments
+    TON_WALLET_MNEMONIC: str  # Bot's wallet mnemonic for sending payouts (keep secure!)
+    TON_NETWORK: str = "mainnet"  # "mainnet" or "testnet"
 
     # Random.org API
     RANDOM_ORG_API_KEY: str
@@ -27,19 +33,29 @@ class Settings(BaseSettings):
     MIN_PARTICIPANTS: int = 10
     STARS_ENTRY_FEE: int = 10
     RUB_ENTRY_FEE: int = 100
+    TON_ENTRY_FEE: float = 0.5  # Entry fee in TON (recommended: 0.5 TON)
     STARS_COMMISSION_PERCENT: int = 20
     RUB_COMMISSION_PERCENT: int = 15
+    TON_COMMISSION_PERCENT: int = 12  # Lower commission for TON (12%)
 
     # Reserve Settings
     STARS_RESERVE_MIN: int = 3000
     STARS_RESERVE_TARGET: int = 5000
+    TON_RESERVE_MIN: float = 10.0  # Minimum TON reserve (10 TON)
+    TON_RESERVE_TARGET: float = 20.0  # Target TON reserve (20 TON)
 
     # Withdrawal Settings
     MIN_WITHDRAWAL_STARS: int = 1  # Changed to 1 to allow any amount
     MIN_WITHDRAWAL_RUB: int = 100
+    MIN_WITHDRAWAL_TON: float = 0.1  # Minimum TON withdrawal (0.1 TON)
 
     # Currency Settings
-    STARS_ONLY: bool = False  # Disable RUB payments, only use Telegram Stars
+    STARS_ONLY: bool = False  # DEPRECATED - Disable RUB payments, only use Telegram Stars
+    TON_ONLY: bool = True  # Enable ONLY TON payments (disable Stars and RUB)
+
+    # Transaction Monitoring
+    TON_TRANSACTION_CHECK_INTERVAL: int = 15  # Check for new transactions every 15 seconds
+    TON_TRANSACTION_CONFIRMATIONS: int = 1  # Number of confirmations required
 
     # Privacy Settings
     SHOW_USERNAMES: bool = True

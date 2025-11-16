@@ -9,6 +9,7 @@ from app.config import settings
 from app.keyboards.inline import payment_choice, raffle_info_keyboard, verification_link_keyboard, back_button
 from app.services.random_service import random_service, RandomOrgError
 from app.services.notification import NotificationService
+from app.services.ton_service import ton_service, TonPaymentError
 from app.utils import format_user_display_name, round_rub_amount
 
 router = Router()
@@ -42,7 +43,11 @@ async def callback_join_raffle(callback: CallbackQuery):
         await callback.message.edit_text(
             f"<b>💫 Присоединиться к розыгрышу</b>\n\n"
             f"Выберите способ оплаты:",
-            reply_markup=payment_choice(settings.STARS_ENTRY_FEE, settings.RUB_ENTRY_FEE),
+            reply_markup=payment_choice(
+                stars_fee=settings.STARS_ENTRY_FEE,
+                rub_fee=settings.RUB_ENTRY_FEE,
+                ton_fee=settings.TON_ENTRY_FEE
+            ),
             parse_mode="HTML"
         )
 
@@ -86,7 +91,11 @@ async def callback_join_raffle_with_id(callback: CallbackQuery):
         await callback.message.edit_text(
             f"<b>💫 Присоединиться к розыгрышу</b>\n\n"
             f"Выберите способ оплаты:",
-            reply_markup=payment_choice(settings.STARS_ENTRY_FEE, settings.RUB_ENTRY_FEE),
+            reply_markup=payment_choice(
+                stars_fee=settings.STARS_ENTRY_FEE,
+                rub_fee=settings.RUB_ENTRY_FEE,
+                ton_fee=settings.TON_ENTRY_FEE
+            ),
             parse_mode="HTML"
         )
 
@@ -341,6 +350,128 @@ def get_status_emoji(status: RaffleStatus) -> str:
     return emoji_map.get(status, "❓")
 
 
+async def handle_ton_payout(bot: Bot, session, raffle_id: int, winner, prize_amount: float):
+    """
+    Handle automatic TON payout to winner
+
+    Args:
+        bot: Bot instance
+        session: Database session
+        raffle_id: Raffle ID
+        winner: Winner user object
+        prize_amount: Prize amount in TON
+    """
+    try:
+        # Check if winner has TON wallet address
+        if not winner.ton_wallet_address:
+            # Winner hasn't set wallet - notify them and ask to set it
+            await bot.send_message(
+                winner.telegram_id,
+                f"🎉 <b>Поздравляем! Вы победили в розыгрыше #{raffle_id}!</b>\n\n"
+                f"Ваш приз: <b>{prize_amount:.4f} TON</b>\n\n"
+                f"⚠️ Для получения приза необходимо указать адрес TON кошелька.\n\n"
+                f"Используйте команду /balance и укажите ваш TON кошелек.\n"
+                f"После этого приз будет отправлен автоматически.",
+                parse_mode="HTML"
+            )
+
+            logger.warning(
+                f"Winner {winner.telegram_id} for raffle {raffle_id} "
+                f"doesn't have TON wallet address set"
+            )
+            return
+
+        # Send TON to winner
+        logger.info(
+            f"Sending {prize_amount:.4f} TON to winner {winner.telegram_id} "
+            f"(wallet: {winner.ton_wallet_address[:8]}...)"
+        )
+
+        tx_hash = await ton_service.send_prize_payout(
+            winner_address=winner.ton_wallet_address,
+            amount_ton=prize_amount,
+            raffle_id=raffle_id
+        )
+
+        # Create transaction record
+        await crud.create_transaction(
+            session,
+            user_id=winner.id,
+            type=TransactionType.RAFFLE_WIN,
+            amount=prize_amount,
+            currency=CurrencyType.TON,
+            payment_id=tx_hash[:32],  # Truncate for DB
+            transaction_hash=tx_hash,
+            description=f"Приз за победу в розыгрыше #{raffle_id}",
+            payment_metadata={
+                "raffle_id": raffle_id,
+                "winner_wallet": winner.ton_wallet_address,
+                "automatic_payout": True
+            }
+        )
+
+        await session.commit()
+
+        # Notify winner
+        await bot.send_message(
+            winner.telegram_id,
+            f"🎉 <b>Поздравляем с победой!</b>\n\n"
+            f"💎 Приз <b>{prize_amount:.4f} TON</b> отправлен на ваш кошелек!\n"
+            f"🏆 Розыгрыш: #{raffle_id}\n\n"
+            f"📝 Адрес получателя: <code>{winner.ton_wallet_address}</code>\n"
+            f"🔗 Хэш транзакции: <code>{tx_hash[:16]}...</code>\n\n"
+            f"Приз поступит на ваш кошелек в течение нескольких секунд.\n"
+            f"Проверьте баланс в Tonkeeper или вашем TON кошельке!",
+            parse_mode="HTML"
+        )
+
+        logger.info(
+            f"TON payout sent successfully: raffle={raffle_id}, "
+            f"winner={winner.telegram_id}, amount={prize_amount}, "
+            f"tx_hash={tx_hash[:16]}..."
+        )
+
+    except TonPaymentError as e:
+        logger.error(f"Failed to send TON payout: {e}")
+
+        # Notify winner about the issue
+        await bot.send_message(
+            winner.telegram_id,
+            f"🎉 <b>Поздравляем с победой!</b>\n\n"
+            f"Ваш приз: <b>{prize_amount:.4f} TON</b>\n\n"
+            f"⚠️ К сожалению, возникла техническая ошибка при автоматической отправке приза.\n"
+            f"Администратор свяжется с вами для ручной выплаты.\n\n"
+            f"Приносим извинения за неудобства!",
+            parse_mode="HTML"
+        )
+
+        # Notify admin
+        admin_ids = settings.get_admin_ids()
+        if admin_ids:
+            await bot.send_message(
+                admin_ids[0],
+                f"⚠️ <b>Ошибка автоматической выплаты TON</b>\n\n"
+                f"Розыгрыш: #{raffle_id}\n"
+                f"Победитель: {winner.first_name} (@{winner.username or 'без username'})\n"
+                f"Telegram ID: {winner.telegram_id}\n"
+                f"Сумма: {prize_amount:.4f} TON\n"
+                f"Кошелек: <code>{winner.ton_wallet_address}</code>\n\n"
+                f"Ошибка: {str(e)}\n\n"
+                f"Необходимо выплатить приз вручную!",
+                parse_mode="HTML"
+            )
+
+    except Exception as e:
+        logger.error(f"Unexpected error in TON payout: {e}", exc_info=True)
+        # Same error handling as above
+        await bot.send_message(
+            winner.telegram_id,
+            f"🎉 Поздравляем с победой! Приз {prize_amount:.4f} TON\n"
+            f"⚠️ Возникла техническая ошибка. Администратор свяжется с вами.",
+            parse_mode="HTML"
+        )
+
+
 async def execute_raffle(bot: Bot, raffle_id: int):
     """
     Execute raffle and determine winner
@@ -400,42 +531,53 @@ async def execute_raffle(bot: Bot, raffle_id: int):
 
             await session.commit()
 
-            # Instead of automatically crediting balance, send payout request to admin
-            # This allows admin to pay winner via invoice link
-            from app.services.admin_payout_service import create_admin_payout_service
+            # Handle payouts based on currency type
+            if raffle.entry_fee_type == CurrencyType.TON:
+                # TON: Automatic payout directly to winner's wallet
+                await handle_ton_payout(
+                    bot=bot,
+                    session=session,
+                    raffle_id=raffle_id,
+                    winner=winner_participant.user,
+                    prize_amount=prize_amount
+                )
+            else:
+                # STARS/RUB: Send payout request to admin (legacy system)
+                # This allows admin to pay winner via invoice link
+                from app.services.admin_payout_service import create_admin_payout_service
 
-            payout_service = create_admin_payout_service(bot)
+                payout_service = create_admin_payout_service(bot)
 
-            # Get first admin ID from settings
-            admin_ids = settings.get_admin_ids()
-            if not admin_ids:
-                logger.error("No admin IDs configured for payout request!")
-                raise ValueError("No admin IDs configured")
+                # Get first admin ID from settings
+                admin_ids = settings.get_admin_ids()
+                if not admin_ids:
+                    logger.error("No admin IDs configured for payout request!")
+                    raise ValueError("No admin IDs configured")
 
-            admin_id = admin_ids[0]  # Send to first admin
+                admin_id = admin_ids[0]  # Send to first admin
 
-            # Notify winner that payout is pending
-            await payout_service.notify_winner_payment_pending(
-                winner_id=winner_participant.user.telegram_id,
-                amount=prize_amount,
-                raffle_id=raffle_id,
-                currency=raffle.entry_fee_type,
-            )
+                # Notify winner that payout is pending
+                await payout_service.notify_winner_payment_pending(
+                    winner_id=winner_participant.user.telegram_id,
+                    amount=prize_amount,
+                    raffle_id=raffle_id,
+                    currency=raffle.entry_fee_type,
+                )
 
-            # Send payout request to admin
-            await payout_service.send_payout_request_to_admin(
-                admin_id=admin_id,
-                winner_id=winner_participant.user.telegram_id,
-                winner_username=winner_participant.user.username,
-                winner_name=winner_participant.user.first_name or "Пользователь",
-                amount=prize_amount,
-                raffle_id=raffle_id,
-                currency=raffle.entry_fee_type,
-            )
+                # Send payout request to admin
+                await payout_service.send_payout_request_to_admin(
+                    admin_id=admin_id,
+                    winner_id=winner_participant.user.telegram_id,
+                    winner_username=winner_participant.user.username,
+                    winner_name=winner_participant.user.first_name or "Пользователь",
+                    amount=prize_amount,
+                    raffle_id=raffle_id,
+                    currency=raffle.entry_fee_type,
+                )
 
-            logger.info(
-                f"Payout request sent to admin {admin_id} for raffle {raffle_id}"
-            )
+                logger.info(
+                    f"Payout request sent to admin {admin_id} for raffle {raffle_id}"
+                )
 
             # Get verification URL
             verification_url = random_service.get_verification_url(
