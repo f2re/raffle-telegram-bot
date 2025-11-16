@@ -155,11 +155,20 @@ class TonService:
                 logger.debug(f"Account {self.wallet_address} is not initialized, no transactions to check")
                 return []
 
+            # Check if account has transaction history
+            if not hasattr(account, 'last_trans_lt') or account.last_trans_lt is None:
+                logger.debug(f"Account {self.wallet_address} has no transaction history yet")
+                return []
+
             # Get recent transactions
-            transactions = await client.get_transactions(
-                address=address,
-                count=limit
-            )
+            try:
+                transactions = await client.get_transactions(
+                    address=address,
+                    count=limit
+                )
+            except (AttributeError, TypeError) as e:
+                logger.debug(f"Cannot fetch transactions (account might be empty): {e}")
+                return []
 
             # Handle None or empty transactions
             if not transactions:
