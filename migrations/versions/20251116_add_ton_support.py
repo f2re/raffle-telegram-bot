@@ -24,7 +24,19 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     # Add 'ton' to CurrencyType enum
-    op.execute("ALTER TYPE currencytype ADD VALUE IF NOT EXISTS 'ton'")
+    # Note: IF NOT EXISTS is not supported in all PostgreSQL versions,
+    # so we use a DO block to check first
+    op.execute("""
+        DO $$ BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM pg_enum e
+                JOIN pg_type t ON e.enumtypid = t.oid
+                WHERE t.typname = 'currencytype' AND e.enumlabel = 'ton'
+            ) THEN
+                ALTER TYPE currencytype ADD VALUE 'ton';
+            END IF;
+        END $$;
+    """)
 
     # Add balance_ton column to users table
     op.add_column('users',
