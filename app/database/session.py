@@ -77,6 +77,26 @@ async def validate_db_schema():
     """
     try:
         async with engine.begin() as conn:
+            # First, check and fix the currencytype enum
+            # This is a common issue where the migration ran but enum wasn't updated
+            logger.info("Checking currencytype enum for 'ton' value...")
+
+            result = await conn.execute(text("""
+                SELECT EXISTS (
+                    SELECT 1 FROM pg_enum e
+                    JOIN pg_type t ON e.enumtypid = t.oid
+                    WHERE t.typname = 'currencytype' AND e.enumlabel = 'ton'
+                )
+            """))
+            ton_exists = result.scalar()
+
+            if not ton_exists:
+                logger.warning("'ton' value missing from currencytype enum, adding it now...")
+                await conn.execute(text("ALTER TYPE currencytype ADD VALUE 'ton'"))
+                logger.info("✅ Added 'ton' to currencytype enum")
+            else:
+                logger.debug("✅ 'ton' value exists in currencytype enum")
+
             # Check if users table has balance_ton column
             result = await conn.execute(text("""
                 SELECT column_name
