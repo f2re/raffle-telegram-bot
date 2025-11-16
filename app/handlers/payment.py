@@ -7,6 +7,7 @@ from app.database import crud
 from app.database.models import CurrencyType, TransactionType, TransactionStatus
 from app.config import settings
 from app.services.payment_service import yookassa_service, PaymentError
+from app.services.ton_service import ton_service
 from app.keyboards.inline import back_button
 
 router = Router()
@@ -121,6 +122,75 @@ async def callback_pay_rub(callback: CallbackQuery):
                 "Ошибка создания платежа. Попробуйте позже.",
                 show_alert=True
             )
+
+    await callback.answer()
+
+
+@router.callback_query(F.data == "pay_ton")
+async def callback_pay_ton(callback: CallbackQuery):
+    """Handle payment with TON cryptocurrency"""
+    async with get_session() as session:
+        # Get current raffle
+        raffle = await crud.get_active_raffle(session)
+        if not raffle:
+            await callback.answer("Нет активного розыгрыша", show_alert=True)
+            return
+
+        # Check if raffle uses TON
+        if raffle.entry_fee_type != CurrencyType.TON:
+            await callback.answer(
+                "Этот розыгрыш не использует TON оплату",
+                show_alert=True
+            )
+            return
+
+        # Check if already participating
+        user = await crud.get_user_by_telegram_id(session, callback.from_user.id)
+        if not user:
+            # Create user if doesn't exist
+            user = await crud.get_or_create_user(
+                session,
+                telegram_id=callback.from_user.id,
+                username=callback.from_user.username,
+                first_name=callback.from_user.first_name,
+                last_name=callback.from_user.last_name,
+            )
+
+        participants = await crud.get_raffle_participants(session, raffle.id)
+
+        if user and any(p.user_id == user.id for p in participants):
+            await callback.answer("Вы уже участвуете в этом розыгрыше!", show_alert=True)
+            return
+
+        # Generate unique payment comment
+        payment_comment = ton_service.generate_payment_comment(
+            raffle_id=raffle.id,
+            user_id=user.id
+        )
+
+        # Get entry fee
+        entry_fee = raffle.entry_fee_amount
+
+        # Send payment instructions
+        await callback.message.edit_text(
+            f"💎 <b>Оплата через TON</b>\n\n"
+            f"Для участия в розыгрыше #{raffle.id}:\n\n"
+            f"1️⃣ Отправьте <b>{entry_fee:.4f} TON</b> на адрес:\n"
+            f"<code>{settings.TON_WALLET_ADDRESS}</code>\n\n"
+            f"2️⃣ В комментарии к платежу укажите:\n"
+            f"<code>{payment_comment}</code>\n\n"
+            f"⚠️ <b>ВАЖНО:</b> Обязательно укажите комментарий!\n"
+            f"Без комментария платеж не будет обработан.\n\n"
+            f"После отправки платежа бот автоматически зарегистрирует ваше участие в течение {settings.TON_TRANSACTION_CHECK_INTERVAL} секунд.\n\n"
+            f"💡 Используйте Tonkeeper, TON Wallet или @wallet для отправки.",
+            reply_markup=back_button(),
+            parse_mode="HTML"
+        )
+
+        logger.info(
+            f"TON payment instructions sent to user {user.telegram_id} "
+            f"for raffle {raffle.id}"
+        )
 
     await callback.answer()
 

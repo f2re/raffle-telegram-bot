@@ -13,6 +13,7 @@ Base = declarative_base()
 class CurrencyType(PyEnum):
     STARS = "stars"
     RUB = "rub"
+    TON = "ton"
 
 
 class RaffleStatus(PyEnum):
@@ -62,6 +63,8 @@ class User(Base):
     last_name = Column(String, nullable=True)
     balance_stars = Column(Integer, default=0)
     balance_rub = Column(Float, default=0.0)
+    balance_ton = Column(Float, default=0.0)
+    ton_wallet_address = Column(String(48), nullable=True)  # User's TON wallet for payouts
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     is_active = Column(Boolean, default=True)
@@ -122,6 +125,7 @@ class Transaction(Base):
     currency = Column(Enum(CurrencyType), nullable=False)
     status = Column(Enum(TransactionStatus), default=TransactionStatus.PENDING)
     payment_id = Column(String, nullable=True)  # External payment system ID
+    transaction_hash = Column(String(44), nullable=True, index=True)  # TON blockchain transaction hash
     description = Column(Text, nullable=True)
     payment_metadata = Column(JSON, nullable=True)  # Additional payment data
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -154,6 +158,7 @@ class WithdrawalRequest(Base):
     # Payment details (for RUB withdrawals)
     card_number = Column(String, nullable=True)  # Bank card number
     phone_number = Column(String, nullable=True)  # Phone for SBP
+    wallet_address = Column(String(48), nullable=True)  # TON wallet address for TON withdrawals
 
     # Admin actions
     admin_id = Column(Integer, ForeignKey("users.id"), nullable=True)

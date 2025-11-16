@@ -14,6 +14,11 @@ aioredis
 # Payment Systems
 yookassa
 
+# TON Blockchain
+pytoniq>=0.1.38
+pytoniq-core>=0.1.30
+tonsdk
+
 # HTTP Requests
 requests
 

@@ -25,26 +25,35 @@ def main_menu() -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def payment_choice(stars_fee: int, rub_fee: int) -> InlineKeyboardMarkup:
+def payment_choice(stars_fee: int = 0, rub_fee: int = 0, ton_fee: float = 0) -> InlineKeyboardMarkup:
     """Payment method selection keyboard"""
     builder = InlineKeyboardBuilder()
 
-    # Show stars payment button (always)
-    builder.row(
-        InlineKeyboardButton(
-            text=f"⭐ Оплатить звездами ({stars_fee} ⭐)",
-            callback_data="pay_stars"
-        )
-    )
-
-    # Show RUB payment button only if not in STARS_ONLY mode
-    if not settings.STARS_ONLY:
+    # TON ONLY mode - show only TON payment
+    if settings.TON_ONLY:
         builder.row(
             InlineKeyboardButton(
-                text=f"💳 Оплатить рублями ({rub_fee} RUB)",
-                callback_data="pay_rub"
+                text=f"💎 Оплатить TON ({ton_fee:.2f} TON)",
+                callback_data="pay_ton"
             )
         )
+    else:
+        # Legacy mode: show Stars and RUB
+        builder.row(
+            InlineKeyboardButton(
+                text=f"⭐ Оплатить звездами ({stars_fee} ⭐)",
+                callback_data="pay_stars"
+            )
+        )
+
+        # Show RUB payment button only if not in STARS_ONLY mode
+        if not settings.STARS_ONLY:
+            builder.row(
+                InlineKeyboardButton(
+                    text=f"💳 Оплатить рублями ({rub_fee} RUB)",
+                    callback_data="pay_rub"
+                )
+            )
 
     builder.row(
         InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_menu")
@@ -149,6 +158,10 @@ def balance_keyboard() -> InlineKeyboardMarkup:
     builder.row(
         InlineKeyboardButton(text="📜 История выводов", callback_data="my_withdrawals")
     )
+    if settings.TON_ONLY:
+        builder.row(
+            InlineKeyboardButton(text="💎 Указать TON кошелек", callback_data="set_ton_wallet")
+        )
     builder.row(
         InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_menu")
     )

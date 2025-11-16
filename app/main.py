@@ -10,10 +10,17 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from app.config import settings
 from app.database.session import init_db
 from app.handlers import start, payment, raffle, admin, withdrawal
+from app.services.ton_monitor import start_ton_monitor
+from app.services.ton_service import ton_service
+
+# Global TON monitor instance
+ton_monitor = None
 
 
 async def on_startup(bot: Bot):
     """Actions on bot startup"""
+    global ton_monitor
+
     logger.info("Bot is starting...")
 
     # Initialize database
@@ -24,15 +31,38 @@ async def on_startup(bot: Bot):
         logger.error(f"Failed to initialize database: {e}")
         sys.exit(1)
 
+    # Start TON transaction monitor if TON_ONLY mode enabled
+    if settings.TON_ONLY:
+        try:
+            ton_monitor = await start_ton_monitor(bot)
+            logger.info("TON transaction monitor started")
+
+            # Check wallet balance
+            balance = await ton_service.get_balance()
+            logger.info(f"TON wallet balance: {balance:.4f} TON")
+
+            if balance < settings.TON_RESERVE_MIN:
+                logger.warning(
+                    f"TON wallet balance ({balance:.4f}) is below minimum reserve "
+                    f"({settings.TON_RESERVE_MIN} TON)"
+                )
+        except Exception as e:
+            logger.error(f"Failed to start TON monitor: {e}", exc_info=True)
+            # Don't exit - allow bot to start even if TON monitor fails
+
     # Notify admins
     admin_ids = settings.get_admin_ids()
     if admin_ids:
         for admin_id in admin_ids:
             try:
-                await bot.send_message(
-                    admin_id,
-                    "🤖 Бот запущен и готов к работе!"
-                )
+                status_msg = "🤖 Бот запущен и готов к работе!"
+                if settings.TON_ONLY:
+                    balance = await ton_service.get_balance()
+                    status_msg += f"\n\n💎 TON баланс: {balance:.4f} TON"
+                    if balance < settings.TON_RESERVE_MIN:
+                        status_msg += f"\n⚠️ Баланс ниже минимального резерва ({settings.TON_RESERVE_MIN} TON)"
+
+                await bot.send_message(admin_id, status_msg)
             except Exception as e:
                 logger.warning(f"Failed to notify admin {admin_id}: {e}")
     else:
@@ -43,7 +73,24 @@ async def on_startup(bot: Bot):
 
 async def on_shutdown(bot: Bot):
     """Actions on bot shutdown"""
+    global ton_monitor
+
     logger.info("Bot is shutting down...")
+
+    # Stop TON monitor
+    if ton_monitor:
+        try:
+            await ton_monitor.stop()
+            logger.info("TON monitor stopped")
+        except Exception as e:
+            logger.error(f"Error stopping TON monitor: {e}")
+
+    # Close TON service
+    try:
+        await ton_service.close()
+        logger.info("TON service closed")
+    except Exception as e:
+        logger.error(f"Error closing TON service: {e}")
 
     # Notify admins
     admin_ids = settings.get_admin_ids()
