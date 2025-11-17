@@ -14,9 +14,11 @@ import asyncio
 import json
 from typing import Optional, Dict, Any
 from datetime import datetime
+from base64 import urlsafe_b64encode
 
 from pytonconnect import TonConnect
 from pytonconnect.storage import IStorage
+from pytoniq_core import begin_cell
 from loguru import logger
 import redis.asyncio as aioredis
 
@@ -129,8 +131,8 @@ class TonConnectService:
         try:
             connector = await self.create_connector(user_id)
 
-            # Get available wallets
-            wallets = await connector.get_wallets()
+            # Get available wallets (synchronous method)
+            wallets = connector.get_wallets()
 
             # Find requested wallet or use first available
             wallet = None
@@ -262,16 +264,19 @@ class TonConnectService:
                 raise TonConnectError("Wallet not connected")
 
             # Prepare transaction body (comment)
-            body = None
+            payload = None
             if comment:
                 # Text message format: 32-bit zero + UTF-8 text
-                from pytoniq_core import begin_cell
+                # Payload must be base64-encoded BOC
                 body = (
                     begin_cell()
                     .store_uint(0, 32)  # Text message op code
-                    .store_bytes(comment.encode('utf-8'))
+                    .store_string(comment)  # Store comment as string
                     .end_cell()
                 )
+
+                # Encode to base64 (required by TON Connect)
+                payload = urlsafe_b64encode(body.to_boc()).decode()
 
             # Create transaction
             transaction = {
@@ -280,7 +285,7 @@ class TonConnectService:
                     {
                         "address": destination,
                         "amount": str(amount_nano),
-                        "payload": body.to_boc().hex() if body else None,
+                        "payload": payload,
                     }
                 ]
             }
