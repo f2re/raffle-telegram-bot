@@ -147,12 +147,32 @@ async def main():
         format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
         level=settings.LOG_LEVEL,
     )
-    logger.add(
-        "logs/bot_{time:YYYY-MM-DD}.log",
-        rotation="00:00",
-        retention="30 days",
-        level=settings.LOG_LEVEL,
-    )
+
+    # Add file logging only if not in Docker or if logs directory is writable
+    # In Docker, use stdout/stderr (best practice for containers)
+    try:
+        # Try to create logs directory and test write permissions
+        import os
+        os.makedirs("logs", exist_ok=True)
+
+        # Test if we can write to the logs directory
+        test_file = "logs/.write_test"
+        with open(test_file, "w") as f:
+            f.write("test")
+        os.remove(test_file)
+
+        # If we got here, we have write permissions - add file logging
+        logger.add(
+            "logs/bot_{time:YYYY-MM-DD}.log",
+            rotation="00:00",
+            retention="30 days",
+            level=settings.LOG_LEVEL,
+        )
+        logger.info("File logging enabled: logs/bot_{time:YYYY-MM-DD}.log")
+    except (PermissionError, OSError) as e:
+        # Running in Docker or no write permissions - skip file logging
+        logger.warning(f"File logging disabled (no write permissions): {e}")
+        logger.info("Using stdout/stderr logging only (Docker mode)")
 
     logger.info("Starting Telegram Raffle Bot...")
 
