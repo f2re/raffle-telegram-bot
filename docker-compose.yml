@@ -48,6 +48,7 @@ services:
     volumes:
       - ./app:/app/app
       - ./migrations:/app/migrations
+      - ./logs:/app/logs
     restart: unless-stopped
     networks:
       - raffle_network
