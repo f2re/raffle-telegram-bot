@@ -134,6 +134,12 @@ class TonTransactionMonitor:
                     )
                     return
 
+                # Get user first (needed for refunds)
+                user = await crud.get_user_by_id(session, user_id)
+                if not user:
+                    logger.warning(f"User {user_id} not found")
+                    return
+
                 # Verify amount matches entry fee
                 expected_amount = raffle.entry_fee_amount
                 if abs(tx["amount"] - expected_amount) > 0.001:  # Allow 0.001 TON tolerance
@@ -142,13 +148,69 @@ class TonTransactionMonitor:
                         f"expected {expected_amount} TON, "
                         f"got {tx['amount']} TON"
                     )
-                    # TODO: Implement refund logic for incorrect amounts
-                    return
 
-                # Get user
-                user = await crud.get_user_by_id(session, user_id)
-                if not user:
-                    logger.warning(f"User {user_id} not found")
+                    # Send automatic refund for incorrect amount
+                    try:
+                        await ton_service.send_refund(
+                            recipient_address=tx["from_address"],
+                            amount_ton=tx["amount"],
+                            reason=f"Wrong amount (expected {expected_amount:.4f} TON)",
+                            raffle_id=raffle_id
+                        )
+
+                        # Create transaction record for refund
+                        await crud.create_transaction(
+                            session,
+                            user_id=user.id,
+                            type=TransactionType.REFUND,
+                            amount=tx["amount"],
+                            currency=CurrencyType.TON,
+                            payment_id=tx["hash"][:32],
+                            transaction_hash=tx["hash"],
+                            description=f"Refund: wrong amount for raffle #{raffle_id}",
+                            payment_metadata={
+                                "raffle_id": raffle_id,
+                                "from_address": tx["from_address"],
+                                "expected_amount": expected_amount,
+                                "actual_amount": tx["amount"],
+                                "reason": "amount_mismatch"
+                            }
+                        )
+
+                        await session.commit()
+
+                        # Notify user
+                        await self.bot.send_message(
+                            user.telegram_id,
+                            f"⚠️ <b>Неверная сумма платежа</b>\n\n"
+                            f"Вы отправили: {tx['amount']:.4f} TON\n"
+                            f"Требуется: {expected_amount:.4f} TON\n\n"
+                            f"💰 Ваши средства автоматически возвращены на кошелек:\n"
+                            f"<code>{tx['from_address'][:8]}...{tx['from_address'][-4:]}</code>\n\n"
+                            f"Пожалуйста, отправьте правильную сумму для участия в розыгрыше.",
+                            parse_mode="HTML"
+                        )
+
+                        logger.info(
+                            f"Refund sent for wrong amount: {tx['amount']:.4f} TON "
+                            f"to {tx['from_address'][:8]}..."
+                        )
+                    except Exception as e:
+                        logger.error(f"Failed to send refund: {e}")
+                        # Notify admin about failed refund
+                        admin_ids = settings.get_admin_ids()
+                        if admin_ids:
+                            await self.bot.send_message(
+                                admin_ids[0],
+                                f"⚠️ <b>Failed to send automatic refund</b>\n\n"
+                                f"User: {user.first_name} (@{user.username or 'none'})\n"
+                                f"Amount: {tx['amount']:.4f} TON\n"
+                                f"Address: <code>{tx['from_address']}</code>\n"
+                                f"Reason: Wrong amount\n\n"
+                                f"Error: {str(e)}\n\n"
+                                f"Please refund manually!",
+                                parse_mode="HTML"
+                            )
                     return
 
                 # Check if user already participating
@@ -157,7 +219,66 @@ class TonTransactionMonitor:
                     logger.warning(
                         f"User {user_id} already participating in raffle {raffle_id}"
                     )
-                    # TODO: Implement refund logic for duplicate participation
+
+                    # Send automatic refund for duplicate participation
+                    try:
+                        await ton_service.send_refund(
+                            recipient_address=tx["from_address"],
+                            amount_ton=tx["amount"],
+                            reason="Already participating in raffle",
+                            raffle_id=raffle_id
+                        )
+
+                        # Create transaction record for refund
+                        await crud.create_transaction(
+                            session,
+                            user_id=user.id,
+                            type=TransactionType.REFUND,
+                            amount=tx["amount"],
+                            currency=CurrencyType.TON,
+                            payment_id=tx["hash"][:32],
+                            transaction_hash=tx["hash"],
+                            description=f"Refund: already participating in raffle #{raffle_id}",
+                            payment_metadata={
+                                "raffle_id": raffle_id,
+                                "from_address": tx["from_address"],
+                                "reason": "duplicate_participation"
+                            }
+                        )
+
+                        await session.commit()
+
+                        # Notify user
+                        await self.bot.send_message(
+                            user.telegram_id,
+                            f"ℹ️ <b>Повторное участие</b>\n\n"
+                            f"Вы уже участвуете в розыгрыше #{raffle_id}!\n\n"
+                            f"💰 Ваши средства ({tx['amount']:.4f} TON) автоматически возвращены:\n"
+                            f"<code>{tx['from_address'][:8]}...{tx['from_address'][-4:]}</code>\n\n"
+                            f"Один пользователь может участвовать в розыгрыше только один раз.",
+                            parse_mode="HTML"
+                        )
+
+                        logger.info(
+                            f"Refund sent for duplicate participation: {tx['amount']:.4f} TON "
+                            f"to {tx['from_address'][:8]}..."
+                        )
+                    except Exception as e:
+                        logger.error(f"Failed to send refund for duplicate: {e}")
+                        # Notify admin
+                        admin_ids = settings.get_admin_ids()
+                        if admin_ids:
+                            await self.bot.send_message(
+                                admin_ids[0],
+                                f"⚠️ <b>Failed to send automatic refund</b>\n\n"
+                                f"User: {user.first_name} (@{user.username or 'none'})\n"
+                                f"Amount: {tx['amount']:.4f} TON\n"
+                                f"Address: <code>{tx['from_address']}</code>\n"
+                                f"Reason: Duplicate participation\n\n"
+                                f"Error: {str(e)}\n\n"
+                                f"Please refund manually!",
+                                parse_mode="HTML"
+                            )
                     return
 
                 # Check if transaction already processed

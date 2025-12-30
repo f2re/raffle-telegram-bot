@@ -289,15 +289,16 @@ async def show_ton_deep_link_payment(callback: CallbackQuery, raffle, user):
         f"💎 <b>Оплата участия в розыгрыше #{raffle.id}</b>\n\n"
         f"<b>Сумма:</b> {entry_fee:.4f} TON\n\n"
         f"🚀 <b>Быстрая оплата:</b>\n"
-        f"Нажмите кнопку ниже - ваш TON кошелек откроется автоматически "
+        f"Выберите ваш кошелек - он откроется автоматически "
         f"с уже заполненной суммой и комментарием!\n\n"
+        f"💡 <b>Поддерживаются:</b> Tonkeeper, Telegram Wallet (@wallet), TON Wallet и другие\n\n"
         f"✅ После оплаты бот автоматически зарегистрирует ваше участие "
         f"в течение {settings.TON_TRANSACTION_CHECK_INTERVAL} секунд.\n\n"
-        f"💡 <b>Совет:</b> Используйте кнопку '🔄 Проверить оплату' чтобы "
-        f"узнать статус обработки платежа.",
+        f"🔄 Используйте кнопку 'Проверить оплату' чтобы узнать статус платежа.",
         reply_markup=ton_payment_keyboard(
             tonkeeper_url=deep_links["tonkeeper"],
             ton_url=deep_links["ton"],
+            universal_url=deep_links.get("universal"),
             raffle_id=raffle.id
         ),
         parse_mode="HTML"
@@ -379,7 +380,7 @@ async def callback_show_manual_ton_payment(callback: CallbackQuery):
         await callback.message.edit_text(
             f"📋 <b>Данные для ручного ввода</b>\n\n"
             f"Если автоматическое открытие кошелька не работает, "
-            f"введите данные вручную:\n\n"
+            f"введите данные вручную в своем TON кошельке:\n\n"
             f"<b>Адрес получателя:</b>\n"
             f"<code>{settings.TON_WALLET_ADDRESS}</code>\n\n"
             f"<b>Сумма:</b>\n"
@@ -396,6 +397,7 @@ async def callback_show_manual_ton_payment(callback: CallbackQuery):
             reply_markup=ton_payment_keyboard(
                 tonkeeper_url=deep_links["tonkeeper"],
                 ton_url=deep_links["ton"],
+                universal_url=deep_links.get("universal"),
                 raffle_id=raffle.id
             ),
             parse_mode="HTML"
