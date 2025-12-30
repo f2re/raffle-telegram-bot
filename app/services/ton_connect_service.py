@@ -78,13 +78,41 @@ class TonConnectService:
         logger.info(f"TON Connect service initialized (manifest: {self.manifest_url})")
 
     async def _get_redis(self) -> aioredis.Redis:
-        """Get or create Redis connection pool"""
+        """Get or create Redis connection pool with retry logic"""
         if self._redis_pool is None:
-            self._redis_pool = await aioredis.from_url(
-                self.redis_url,
-                encoding="utf-8",
-                decode_responses=False
-            )
+            max_retries = 5
+            retry_delay = 2  # seconds
+
+            for attempt in range(max_retries):
+                try:
+                    self._redis_pool = await aioredis.from_url(
+                        self.redis_url,
+                        encoding="utf-8",
+                        decode_responses=False,
+                        socket_connect_timeout=5
+                    )
+                    # Test connection
+                    await self._redis_pool.ping()
+                    logger.info(f"Successfully connected to Redis at {self.redis_url}")
+                    break
+                except Exception as e:
+                    if attempt < max_retries - 1:
+                        logger.warning(
+                            f"Failed to connect to Redis (attempt {attempt + 1}/{max_retries}): {e}. "
+                            f"Retrying in {retry_delay} seconds..."
+                        )
+                        await asyncio.sleep(retry_delay)
+                        retry_delay *= 2  # Exponential backoff
+                    else:
+                        logger.error(
+                            f"Failed to connect to Redis after {max_retries} attempts: {e}\n"
+                            f"Please ensure:\n"
+                            f"1. Redis service is running (docker compose ps)\n"
+                            f"2. REDIS_URL in .env is set to: redis://redis:6379/0 (for Docker)\n"
+                            f"3. Both services are on the same Docker network\n"
+                            f"Current REDIS_URL: {self.redis_url}"
+                        )
+                        raise
         return self._redis_pool
 
     async def create_connector(self, user_id: int) -> TonConnect:
