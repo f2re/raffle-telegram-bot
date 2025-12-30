@@ -19,6 +19,7 @@ pytoniq>=0.1.38
 pytoniq-core>=0.1.30
 tonsdk
 pytonconnect  # TON Connect SDK for wallet integration
+pytonapi  # TON Console API SDK (tonapi.io / tonconsole.com)
 
 # HTTP Requests
 requests

@@ -63,17 +63,25 @@ Before starting the bot, you need to obtain several API tokens and configure you
 
 ### 3. 💎 TON Blockchain Configuration (Required for TON payments)
 
-#### 3.1 TON Center API Key
+#### 3.1 TON Console API Key
 
-**Where to get:** [https://toncenter.com](https://toncenter.com)
+**Where to get:** [https://tonconsole.com](https://tonconsole.com)
 
 **Steps:**
-1. Visit https://toncenter.com
-2. Click "Get API Key" or "Sign In"
-3. Create account and get your API key
-4. Add to `.env`: `TON_CENTER_API_KEY=your_api_key_here`
+1. Visit https://tonconsole.com
+2. Click "Sign Up" or "Sign In" with your GitHub account
+3. Navigate to "API Keys" section in your dashboard
+4. Click "Create New Key" and give it a name
+5. Copy your API key (format: `AxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxE`)
+6. Add to `.env`: `TON_CENTER_API_KEY=your_api_key_here`
 
-**Alternative:** Use TON API from [https://tonapi.io](https://tonapi.io) (also provides free API keys)
+**What is TON Console?**
+- TON Console provides access to TON API (tonapi.io) - a powerful REST API for TON blockchain
+- Free tier: 1 request per 4 seconds (0.24 rps) without authentication
+- With API key: Much higher rate limits for production use
+- Provides account balance, transaction monitoring, and blockchain data
+
+**Note:** The environment variable is called `TON_CENTER_API_KEY` for backward compatibility, but it's actually a TON Console API key.
 
 #### 3.2 TON Wallet Address & Mnemonic
 
@@ -169,7 +177,7 @@ TELEGRAM_BOT_TOKEN=1234567890:ABCdefGHIjklMNOpqrsTUVwxyz
 ADMIN_USER_IDS=123456789,987654321
 
 # 2. TON Blockchain
-TON_CENTER_API_KEY=your_toncenter_api_key
+TON_CENTER_API_KEY=your_ton_console_api_key
 TON_WALLET_ADDRESS=UQxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 TON_WALLET_MNEMONIC=word1 word2 word3 word4 word5 word6 word7 word8 word9 word10 word11 word12 word13 word14 word15 word16 word17 word18 word19 word20 word21 word22 word23 word24
 TON_NETWORK=mainnet
@@ -204,7 +212,7 @@ Before starting the bot, verify you have:
 
 - [ ] Telegram Bot Token from @BotFather
 - [ ] Your Telegram User ID from @userinfobot
-- [ ] TON Center API Key from toncenter.com
+- [ ] TON Console API Key from tonconsole.com
 - [ ] TON Wallet address and 24-word mnemonic
 - [ ] At least 10 TON in your wallet for payouts
 - [ ] TON Connect manifest published (GitHub Pages or custom domain)
@@ -220,7 +228,7 @@ Before starting the bot, verify you have:
 |---------|-----|---------|
 | BotFather | https://t.me/BotFather | Create Telegram bot |
 | UserInfoBot | https://t.me/userinfobot | Get your Telegram User ID |
-| TON Center | https://toncenter.com | TON blockchain API |
+| TON Console | https://tonconsole.com | TON blockchain API (tonapi.io) |
 | Tonkeeper | https://tonkeeper.com | TON wallet (recommended) |
 | TON Wallet | https://wallet.ton.org | Official TON wallet |
 | Random.org | https://api.random.org/api-keys | Random number generation API |

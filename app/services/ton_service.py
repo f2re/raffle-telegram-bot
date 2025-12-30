@@ -7,7 +7,8 @@ This service handles:
 - Wallet balance checking
 - Transaction verification
 
-Uses pytoniq library for TON blockchain interaction
+Uses TON Console API (tonapi.io / tonconsole.com) for read operations
+and pytoniq library for wallet operations (sending TON)
 """
 
 import asyncio
@@ -16,6 +17,7 @@ from decimal import Decimal
 from datetime import datetime, timedelta
 import hashlib
 
+from pytonapi import AsyncTonapi
 from pytoniq import LiteBalancer, WalletV4R2, begin_cell
 from pytoniq_core import Address
 from loguru import logger
@@ -35,9 +37,14 @@ class TonService:
         """
         Initialize TON service
 
-        Connects to TON Center API and initializes wallet for payouts
+        Uses TON Console API (https://tonconsole.com) for read operations:
+        - Get account balance
+        - Monitor incoming transactions
+
+        Uses pytoniq for wallet operations:
+        - Send TON transactions (payouts, refunds)
         """
-        self.api_key = settings.TON_CENTER_API_KEY
+        self.api_key = settings.TON_CENTER_API_KEY  # Actually TON Console API key from https://tonconsole.com
         self.wallet_address = settings.TON_WALLET_ADDRESS
         self.network = settings.TON_NETWORK
         self.is_testnet = self.network == "testnet"
@@ -46,12 +53,18 @@ class TonService:
         self.last_transaction_lt = 0
         self.last_transaction_hash = ""
 
-        # Initialize client lazily
+        # Initialize TON Console API client
+        self._tonapi = AsyncTonapi(
+            api_key=self.api_key,
+            is_testnet=self.is_testnet
+        )
+
+        # Initialize pytoniq client and wallet lazily (for sending transactions)
         self._client = None
         self._wallet = None
 
         logger.info(
-            f"TON service initialized for {self.network} "
+            f"TON service initialized for {self.network} using TON Console API "
             f"(wallet: {self.wallet_address[:8]}...)"
         )
 
@@ -92,7 +105,7 @@ class TonService:
 
     async def get_balance(self) -> float:
         """
-        Get wallet balance in TON
+        Get wallet balance in TON using TON Console API
 
         Returns:
             Balance in TON (float)
@@ -101,26 +114,17 @@ class TonService:
             TonPaymentError: If balance check fails
         """
         try:
-            client = await self._get_client()
-            address = Address(self.wallet_address)
+            # Get account info from TON Console API
+            account = await self._tonapi.accounts.get_info(account_id=self.wallet_address)
 
-            # Get account state
-            account = await client.get_account_state(address)
+            # Get balance in TON (pytonapi returns balance in amount format)
+            balance_ton = float(account.balance.to_amount())
 
-            # Check if account is initialized
-            if account is None:
-                logger.warning(f"Account {self.wallet_address} is not initialized on blockchain")
-                return 0.0
-
-            # Convert from nanoTON to TON
-            balance_nano = account.balance
-            balance_ton = balance_nano / 1_000_000_000
-
-            logger.debug(f"Wallet balance: {balance_ton:.4f} TON")
+            logger.debug(f"Wallet balance: {balance_ton:.4f} TON (via TON Console API)")
             return balance_ton
 
         except Exception as e:
-            logger.error(f"Failed to get wallet balance: {e}")
+            logger.error(f"Failed to get wallet balance from TON Console API: {e}")
             raise TonPaymentError(f"Failed to get balance: {e}")
 
     async def check_incoming_transactions(
@@ -128,7 +132,7 @@ class TonService:
         limit: int = 30
     ) -> List[Dict[str, Any]]:
         """
-        Check for new incoming transactions
+        Check for new incoming transactions using TON Console API
 
         Args:
             limit: Maximum number of transactions to fetch
@@ -146,94 +150,73 @@ class TonService:
             TonPaymentError: If transaction check fails
         """
         try:
-            client = await self._get_client()
-            address = Address(self.wallet_address)
-
-            # Check if account is initialized first
-            account = await client.get_account_state(address)
-            if account is None:
-                logger.debug(f"Account {self.wallet_address} is not initialized, no transactions to check")
-                return []
-
-            # Check if account has transaction history
-            if not hasattr(account, 'last_trans_lt') or account.last_trans_lt is None:
-                logger.debug(f"Account {self.wallet_address} has no transaction history yet")
-                return []
-
-            # Get recent transactions
-            try:
-                transactions = await client.get_transactions(
-                    address=address,
-                    count=limit
-                )
-            except (AttributeError, TypeError) as e:
-                logger.debug(f"Cannot fetch transactions (account might be empty): {e}")
-                return []
-
-            # Handle None or empty transactions
-            if not transactions:
-                logger.debug("No transactions found")
-                return []
+            # Get account events (transactions) from TON Console API
+            events = await self._tonapi.accounts.get_events(
+                account_id=self.wallet_address,
+                limit=limit
+            )
 
             incoming_txs = []
 
-            for tx in transactions:
-                # Skip if already processed (check logical time)
-                if tx.lt <= self.last_transaction_lt:
+            for event in events.events:
+                # Get the first action (usually the main transaction)
+                if not event.actions:
                     continue
 
-                # Check if transaction has incoming message
-                if not tx.in_msg:
-                    continue
+                for action in event.actions:
+                    # We're interested in TonTransfer actions (incoming TON)
+                    if action.type != "TonTransfer":
+                        continue
 
-                in_msg = tx.in_msg
+                    ton_transfer = action.ton_transfer
+                    if not ton_transfer:
+                        continue
 
-                # Skip if no value transferred
-                if in_msg.info.value_coins == 0:
-                    continue
+                    # Check if this is an incoming transaction (recipient is our wallet)
+                    recipient_address = ton_transfer.recipient.address if ton_transfer.recipient else None
+                    if not recipient_address or recipient_address.lower() != self.wallet_address.lower():
+                        continue
 
-                # Get sender address
-                from_address = in_msg.info.src.to_str() if in_msg.info.src else None
+                    # Get sender address
+                    from_address = ton_transfer.sender.address if ton_transfer.sender else None
+                    if not from_address:
+                        continue
 
-                # Skip if no sender (internal transaction)
-                if not from_address:
-                    continue
+                    # Get amount in TON
+                    amount_ton = float(ton_transfer.amount) / 1_000_000_000
 
-                # Get amount in TON
-                amount_nano = in_msg.info.value_coins
-                amount_ton = amount_nano / 1_000_000_000
+                    # Skip zero-amount transactions
+                    if amount_ton == 0:
+                        continue
 
-                # Extract comment from message body
-                comment = ""
-                try:
-                    if in_msg.body:
-                        # Try to parse comment (text message starts with 0x00000000)
-                        cell = in_msg.body
-                        slice_data = cell.begin_parse()
+                    # Get comment from the transaction
+                    comment = ton_transfer.comment if hasattr(ton_transfer, 'comment') and ton_transfer.comment else ""
 
-                        # Check if it's a text message (op = 0)
-                        if slice_data.load_uint(32) == 0:
-                            comment = slice_data.load_bytes(slice_data.remaining_bytes).decode('utf-8', errors='ignore')
-                except Exception as e:
-                    logger.debug(f"Could not parse comment: {e}")
+                    # Get transaction hash and logical time
+                    tx_hash = event.event_id
+                    lt = event.lt
 
-                # Get transaction hash
-                tx_hash = tx.cell.hash.hex()
+                    # Skip if already processed
+                    if lt <= self.last_transaction_lt:
+                        continue
 
-                incoming_txs.append({
-                    "hash": tx_hash,
-                    "from_address": from_address,
-                    "amount": amount_ton,
-                    "comment": comment.strip(),
-                    "timestamp": datetime.fromtimestamp(tx.now),
-                    "lt": tx.lt,
-                })
+                    # Get timestamp
+                    timestamp = datetime.fromtimestamp(event.timestamp)
 
-                logger.info(
-                    f"Incoming TON transaction: {amount_ton:.4f} TON "
-                    f"from {from_address[:8]}... "
-                    f"comment: '{comment}'"
-                )
+                    incoming_txs.append({
+                        "hash": tx_hash,
+                        "from_address": from_address,
+                        "amount": amount_ton,
+                        "comment": comment.strip(),
+                        "timestamp": timestamp,
+                        "lt": lt,
+                    })
+
+                    logger.info(
+                        f"Incoming TON transaction: {amount_ton:.4f} TON "
+                        f"from {from_address[:8]}... "
+                        f"comment: '{comment}' (via TON Console API)"
+                    )
 
             # Update last processed transaction
             if incoming_txs:
@@ -242,8 +225,10 @@ class TonService:
             return incoming_txs
 
         except Exception as e:
-            logger.error(f"Failed to check incoming transactions: {e}")
-            raise TonPaymentError(f"Failed to check transactions: {e}")
+            logger.error(f"Failed to check incoming transactions from TON Console API: {e}")
+            # Return empty list instead of raising error (temporary network issues)
+            logger.warning("Returning empty transaction list due to API error")
+            return []
 
     async def send_ton(
         self,
@@ -409,10 +394,10 @@ class TonService:
         expected_sender: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        Verify transaction details
+        Verify transaction details using TON Console API
 
         Args:
-            tx_hash: Transaction hash to verify
+            tx_hash: Transaction event ID to verify
             expected_amount: Expected amount in TON (optional)
             expected_sender: Expected sender address (optional)
 
@@ -427,54 +412,64 @@ class TonService:
             TonPaymentError: If verification fails
         """
         try:
-            client = await self._get_client()
-            address = Address(self.wallet_address)
+            # Get recent events to find the transaction
+            events = await self._tonapi.accounts.get_events(
+                account_id=self.wallet_address,
+                limit=100
+            )
 
-            # Get recent transactions
-            transactions = await client.get_transactions(address=address, count=100)
-
-            # Find transaction by hash
-            tx = None
-            for t in transactions:
-                if t.cell.hash.hex() == tx_hash:
-                    tx = t
+            # Find transaction by event_id
+            tx_event = None
+            for event in events.events:
+                if event.event_id == tx_hash:
+                    tx_event = event
                     break
 
-            if not tx:
+            if not tx_event:
                 return {
                     "valid": False,
                     "error": "Transaction not found"
                 }
 
-            # Get transaction details
-            in_msg = tx.in_msg
-            if not in_msg:
+            # Find the TonTransfer action
+            amount_ton = 0.0
+            sender = None
+
+            for action in tx_event.actions:
+                if action.type == "TonTransfer" and action.ton_transfer:
+                    ton_transfer = action.ton_transfer
+
+                    # Check if recipient is our wallet
+                    recipient_address = ton_transfer.recipient.address if ton_transfer.recipient else None
+                    if recipient_address and recipient_address.lower() == self.wallet_address.lower():
+                        amount_ton = float(ton_transfer.amount) / 1_000_000_000
+                        sender = ton_transfer.sender.address if ton_transfer.sender else None
+                        break
+
+            if not sender:
                 return {
                     "valid": False,
-                    "error": "No incoming message"
+                    "error": "No incoming transfer found"
                 }
-
-            amount_ton = in_msg.info.value_coins / 1_000_000_000
-            sender = in_msg.info.src.to_str() if in_msg.info.src else None
 
             # Verify expected values
             valid = True
             if expected_amount and abs(amount_ton - expected_amount) > 0.001:
                 valid = False
 
-            if expected_sender and sender != expected_sender:
+            if expected_sender and sender.lower() != expected_sender.lower():
                 valid = False
 
             return {
                 "valid": valid,
                 "amount": amount_ton,
                 "sender": sender,
-                "timestamp": datetime.fromtimestamp(tx.now),
+                "timestamp": datetime.fromtimestamp(tx_event.timestamp),
                 "confirmations": 1  # TON has near-instant finality
             }
 
         except Exception as e:
-            logger.error(f"Failed to verify transaction: {e}")
+            logger.error(f"Failed to verify transaction via TON Console API: {e}")
             raise TonPaymentError(f"Failed to verify transaction: {e}")
 
     def generate_payment_comment(self, raffle_id: int, user_id: int) -> str:
@@ -571,12 +566,18 @@ class TonService:
         return links
 
     async def close(self):
-        """Close TON client connection"""
+        """Close TON client and API connections"""
+        # Close TON Console API client
+        if self._tonapi:
+            await self._tonapi.close()
+            logger.info("TON Console API client closed")
+
+        # Close pytoniq client (for sending transactions)
         if self._client:
             await self._client.close_all()
             self._client = None
             self._wallet = None
-            logger.info("TON client closed")
+            logger.info("TON pytoniq client closed")
 
 
 # Global service instance
