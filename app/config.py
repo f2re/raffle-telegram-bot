@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     YOOKASSA_SECRET_KEY: Optional[str] = None
 
     # TON Configuration
-    TON_CENTER_API_KEY: str  # API key for TON Center API
+    TON_CENTER_API_KEY: str  # API key for TON Console (https://tonconsole.com - provides tonapi.io access)
     TON_WALLET_ADDRESS: str  # Bot's TON wallet address for receiving payments
     TON_WALLET_MNEMONIC: str  # Bot's wallet mnemonic for sending payouts (keep secure!)
     TON_NETWORK: str = "mainnet"  # "mainnet" or "testnet"
