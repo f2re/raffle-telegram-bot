@@ -21,5 +21,8 @@ COPY . .
 RUN useradd -m -u 1000 botuser && chown -R botuser:botuser /app
 USER botuser
 
+# Set Python path to find app module
+ENV PYTHONPATH=/app
+
 # Run the bot
-CMD ["python", "app/main.py"]
+CMD ["python", "-m", "app.main"]
