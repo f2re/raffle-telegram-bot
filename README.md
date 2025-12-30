@@ -16,8 +16,9 @@ A Telegram bot for running provably fair raffles with two payment methods: Teleg
 
 - Python 3.11+
 - Telegram Bot Token (from [@BotFather](https://t.me/BotFather))
+- TON Wallet and API credentials
 - Random.org API Key (from [Random.org](https://api.random.org/))
-- YooKassa Account (optional, for RUB payments)
+- YooKassa Account (optional, deprecated - use TON instead)
 
 **For Docker deployment:**
 - Docker and Docker Compose
@@ -25,6 +26,208 @@ A Telegram bot for running provably fair raffles with two payment methods: Teleg
 **For local development:**
 - PostgreSQL 14+
 - Redis 6+
+
+## 🔑 Required API Tokens & Configuration
+
+Before starting the bot, you need to obtain several API tokens and configure your environment. Here's a complete guide:
+
+### 1. 🤖 Telegram Bot Token (Required)
+
+**Where to get:** [@BotFather](https://t.me/BotFather)
+
+**Steps:**
+1. Open Telegram and search for `@BotFather`
+2. Send `/newbot` command
+3. Follow the instructions to create your bot
+4. Copy the token (looks like: `1234567890:ABCdefGHIjklMNOpqrsTUVwxyz`)
+5. Add to `.env`: `TELEGRAM_BOT_TOKEN=your_token_here`
+
+**Important:** Enable payments in your bot:
+- Send `/mybots` to @BotFather
+- Select your bot → Payments
+- Select a payment provider (use Telegram Payments for Stars)
+
+---
+
+### 2. 👤 Admin User IDs (Required)
+
+**Where to get:** [@userinfobot](https://t.me/userinfobot)
+
+**Steps:**
+1. Open Telegram and search for `@userinfobot`
+2. Send any message to the bot
+3. It will reply with your user ID (e.g., `123456789`)
+4. Add to `.env`: `ADMIN_USER_IDS=123456789` (comma-separated for multiple admins)
+
+---
+
+### 3. 💎 TON Blockchain Configuration (Required for TON payments)
+
+#### 3.1 TON Center API Key
+
+**Where to get:** [https://toncenter.com](https://toncenter.com)
+
+**Steps:**
+1. Visit https://toncenter.com
+2. Click "Get API Key" or "Sign In"
+3. Create account and get your API key
+4. Add to `.env`: `TON_CENTER_API_KEY=your_api_key_here`
+
+**Alternative:** Use TON API from [https://tonapi.io](https://tonapi.io) (also provides free API keys)
+
+#### 3.2 TON Wallet Address & Mnemonic
+
+**Where to create:** Any TON wallet app
+
+**Recommended wallets:**
+- [Tonkeeper](https://tonkeeper.com) (Most popular)
+- [TON Wallet](https://wallet.ton.org)
+- [MyTonWallet](https://mytonwallet.io)
+
+**Steps:**
+1. Download Tonkeeper (or any TON wallet)
+2. Create new wallet
+3. **IMPORTANT:** Save your 24-word mnemonic phrase securely!
+4. Copy your wallet address (starts with `UQ` or `EQ`)
+5. Add to `.env`:
+   ```env
+   TON_WALLET_ADDRESS=UQxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+   TON_WALLET_MNEMONIC=word1 word2 word3 ... word24
+   ```
+
+**⚠️ Security Warning:**
+- Never share your mnemonic with anyone
+- Store it in a secure password manager
+- This wallet will hold raffle funds - use a dedicated wallet for the bot
+- Keep at least 10-20 TON in the wallet for payouts
+
+**Network Selection:**
+- For production: `TON_NETWORK=mainnet`
+- For testing: `TON_NETWORK=testnet` (get free test TON from [TON Testnet Faucet](https://t.me/testgiver_ton_bot))
+
+#### 3.3 TON Connect Manifest URL
+
+**Where to host:** GitHub Pages (free) or your own domain
+
+**Quick Setup with GitHub Pages:**
+1. The project includes `tonconnect-manifest.json` file
+2. Enable GitHub Pages in your repository settings
+3. Your manifest URL will be: `https://your-username.github.io/raffle-telegram-bot/tonconnect-manifest.json`
+4. Add to `.env`: `TON_CONNECT_MANIFEST_URL=https://your-username.github.io/raffle-telegram-bot/tonconnect-manifest.json`
+
+**Alternative:** Host on your own domain at `https://yourdomain.com/tonconnect-manifest.json`
+
+**See detailed guide:** [GITHUB_PAGES_SETUP.md](GITHUB_PAGES_SETUP.md)
+
+---
+
+### 4. 🎲 Random.org API Key (Required)
+
+**Where to get:** [https://api.random.org/api-keys](https://api.random.org/api-keys)
+
+**Steps:**
+1. Visit https://api.random.org/api-keys
+2. Sign up for a free account
+3. Navigate to "API Keys" section
+4. Click "Create New Key"
+5. Copy your API key (format: `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`)
+6. Add to `.env`: `RANDOM_ORG_API_KEY=your_api_key_here`
+
+**Free tier limits:** 1,000 requests per day (sufficient for most raffles)
+
+---
+
+### 5. 💳 YooKassa Credentials (Optional - Deprecated)
+
+**⚠️ Note:** YooKassa (RUB payments) is deprecated. Use TON payments instead.
+
+**If you still need it:**
+
+**Where to get:** [https://yookassa.ru](https://yookassa.ru)
+
+**Steps:**
+1. Register at https://yookassa.ru
+2. Complete business verification
+3. Get Shop ID and Secret Key from dashboard
+4. Add to `.env`:
+   ```env
+   YOOKASSA_SHOP_ID=your_shop_id
+   YOOKASSA_SECRET_KEY=your_secret_key
+   ```
+
+---
+
+### 📋 Complete .env Template
+
+Copy `.env.example` to `.env` and fill in all values:
+
+```env
+# === REQUIRED SETTINGS ===
+
+# 1. Telegram Bot
+TELEGRAM_BOT_TOKEN=1234567890:ABCdefGHIjklMNOpqrsTUVwxyz
+ADMIN_USER_IDS=123456789,987654321
+
+# 2. TON Blockchain
+TON_CENTER_API_KEY=your_toncenter_api_key
+TON_WALLET_ADDRESS=UQxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+TON_WALLET_MNEMONIC=word1 word2 word3 word4 word5 word6 word7 word8 word9 word10 word11 word12 word13 word14 word15 word16 word17 word18 word19 word20 word21 word22 word23 word24
+TON_NETWORK=mainnet
+TON_CONNECT_MANIFEST_URL=https://your-username.github.io/raffle-telegram-bot/tonconnect-manifest.json
+
+# 3. Random.org
+RANDOM_ORG_API_KEY=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+
+# 4. Database (auto-configured for Docker)
+DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/raffle_bot
+REDIS_URL=redis://redis:6379/0
+
+# === OPTIONAL SETTINGS ===
+
+# YooKassa (deprecated - use TON instead)
+YOOKASSA_SHOP_ID=your_shop_id
+YOOKASSA_SECRET_KEY=your_secret_key
+
+# Bot Configuration
+MIN_PARTICIPANTS=10
+TON_ENTRY_FEE=0.5
+TON_COMMISSION_PERCENT=12
+TON_RESERVE_MIN=10.0
+TON_ONLY=true
+```
+
+---
+
+### ✅ Configuration Checklist
+
+Before starting the bot, verify you have:
+
+- [ ] Telegram Bot Token from @BotFather
+- [ ] Your Telegram User ID from @userinfobot
+- [ ] TON Center API Key from toncenter.com
+- [ ] TON Wallet address and 24-word mnemonic
+- [ ] At least 10 TON in your wallet for payouts
+- [ ] TON Connect manifest published (GitHub Pages or custom domain)
+- [ ] Random.org API Key
+- [ ] All values added to `.env` file
+- [ ] `.env` file configured with correct network (mainnet/testnet)
+
+---
+
+### 🔗 Quick Links Summary
+
+| Service | URL | Purpose |
+|---------|-----|---------|
+| BotFather | https://t.me/BotFather | Create Telegram bot |
+| UserInfoBot | https://t.me/userinfobot | Get your Telegram User ID |
+| TON Center | https://toncenter.com | TON blockchain API |
+| Tonkeeper | https://tonkeeper.com | TON wallet (recommended) |
+| TON Wallet | https://wallet.ton.org | Official TON wallet |
+| Random.org | https://api.random.org/api-keys | Random number generation API |
+| YooKassa | https://yookassa.ru | RUB payments (deprecated) |
+| TON Testnet Faucet | https://t.me/testgiver_ton_bot | Free test TON |
+
+---
 
 ## Quick Start
 
