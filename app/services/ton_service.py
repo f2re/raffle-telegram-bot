@@ -338,6 +338,70 @@ class TonService:
             comment=comment
         )
 
+    async def send_refund(
+        self,
+        recipient_address: str,
+        amount_ton: float,
+        reason: str,
+        raffle_id: int = None
+    ) -> str:
+        """
+        Send refund to user
+
+        Args:
+            recipient_address: User's TON wallet address
+            amount_ton: Refund amount in TON
+            reason: Refund reason (e.g., "wrong amount", "already participating")
+            raffle_id: Optional raffle ID
+
+        Returns:
+            Transaction hash
+
+        Raises:
+            TonPaymentError: If refund fails
+        """
+        raffle_info = f" (Raffle #{raffle_id})" if raffle_id else ""
+        comment = f"Refund{raffle_info}: {reason}"
+
+        logger.info(
+            f"Sending refund: {amount_ton:.4f} TON to {recipient_address[:8]}... "
+            f"Reason: {reason}"
+        )
+
+        return await self.send_ton(
+            destination_address=recipient_address,
+            amount_ton=amount_ton,
+            comment=comment
+        )
+
+    async def check_balance_sufficient(self, required_amount: float) -> bool:
+        """
+        Check if wallet has sufficient balance for operation
+
+        Args:
+            required_amount: Required amount in TON
+
+        Returns:
+            True if balance is sufficient, False otherwise
+        """
+        try:
+            current_balance = await self.get_balance()
+
+            # Add 0.05 TON buffer for transaction fees
+            required_with_fees = required_amount + 0.05
+
+            if current_balance < required_with_fees:
+                logger.warning(
+                    f"Insufficient balance: have {current_balance:.4f} TON, "
+                    f"need {required_with_fees:.4f} TON (including fees)"
+                )
+                return False
+
+            return True
+        except Exception as e:
+            logger.error(f"Error checking balance: {e}")
+            return False
+
     async def verify_transaction(
         self,
         tx_hash: str,
@@ -466,8 +530,8 @@ class TonService:
         Returns:
             Dictionary with deep links for different wallets:
             - tonkeeper: Tonkeeper app link
-            - ton_wallet: Generic TON wallet link
-            - telegram_wallet: Telegram @wallet link
+            - ton: Generic TON protocol link (works with Telegram Wallet and others)
+            - universal: Universal link for all TON wallets
         """
         # Convert TON to nanoTON
         amount_nano = int(amount_ton * 1_000_000_000)
@@ -485,16 +549,17 @@ class TonService:
                 f"?amount={amount_nano}&text={encoded_comment}"
             ),
 
-            # Generic TON protocol link (works with most wallets)
+            # Generic TON protocol link (works with Telegram Wallet, TON Wallet, and most wallets)
+            # This is the standard TON deep link format
             "ton": (
                 f"ton://transfer/{self.wallet_address}"
                 f"?amount={amount_nano}&text={encoded_comment}"
             ),
 
-            # Telegram Wallet (@wallet bot)
-            "telegram_wallet": (
-                f"https://t.me/wallet?startattach=wpay_order-orderId__"
-                f"{self.wallet_address}__{amount_nano}__{encoded_comment}"
+            # Universal link (alternative format for compatibility)
+            "universal": (
+                f"https://ton.org/transfer/{self.wallet_address}"
+                f"?amount={amount_nano}&text={encoded_comment}"
             ),
         }
 

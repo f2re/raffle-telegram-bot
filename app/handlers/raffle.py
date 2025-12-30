@@ -521,6 +521,44 @@ async def handle_ton_payout(bot: Bot, session, raffle_id: int, winner, prize_amo
             )
             return
 
+        # Check if bot has sufficient balance
+        has_balance = await ton_service.check_balance_sufficient(prize_amount)
+        if not has_balance:
+            current_balance = await ton_service.get_balance()
+            logger.error(
+                f"Insufficient balance for payout: need {prize_amount:.4f} TON, "
+                f"have {current_balance:.4f} TON"
+            )
+
+            # Notify winner about delay
+            await bot.send_message(
+                winner.telegram_id,
+                f"🎉 <b>Поздравляем с победой!</b>\n\n"
+                f"Ваш приз: <b>{prize_amount:.4f} TON</b>\n\n"
+                f"⏳ Выплата приза временно задерживается из-за недостаточного баланса бота.\n"
+                f"Администратор уведомлен и пополнит баланс в ближайшее время.\n\n"
+                f"Ваш приз гарантирован и будет отправлен автоматически после пополнения!",
+                parse_mode="HTML"
+            )
+
+            # Notify admin
+            admin_ids = settings.get_admin_ids()
+            if admin_ids:
+                await bot.send_message(
+                    admin_ids[0],
+                    f"⚠️ <b>Недостаточно TON для выплаты победителю!</b>\n\n"
+                    f"Розыгрыш: #{raffle_id}\n"
+                    f"Победитель: {winner.first_name} (@{winner.username or 'без username'})\n"
+                    f"Telegram ID: {winner.telegram_id}\n"
+                    f"Сумма приза: {prize_amount:.4f} TON\n"
+                    f"Текущий баланс: {current_balance:.4f} TON\n\n"
+                    f"Кошелек победителя: <code>{winner.ton_wallet_address}</code>\n\n"
+                    f"⚠️ Необходимо пополнить баланс бота!\n"
+                    f"Минимум: {prize_amount + 0.05:.4f} TON (приз + комиссия)",
+                    parse_mode="HTML"
+                )
+            return
+
         # Send TON to winner
         logger.info(
             f"Sending {prize_amount:.4f} TON to winner {winner.telegram_id} "
