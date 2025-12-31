@@ -54,7 +54,9 @@ RUN apt-get update && \
 
 # Copy and install Python dependencies
 COPY backend/requirements.txt ./backend/
+COPY requirements.txt ./bot/
 RUN pip install --no-cache-dir -r backend/requirements.txt && \
+    pip install --no-cache-dir -r bot/requirements.txt && \
     pip install --no-cache-dir 'uvicorn[standard]' websockets
 
 # Copy backend code
