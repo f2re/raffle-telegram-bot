@@ -1,30 +1,31 @@
 #!/bin/bash
-
 set -e
 
 echo "=========================================="
-echo "Raffle Bot Mini App Deployment Script"
+echo "Raffle Bot Mini App Deployment"
 echo "=========================================="
 
-# Colors for output
+# Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
+BLUE='\033[0;34m'
+NC='\033[0m'
 
-# Check if .env exists
+# Check .env
 if [ ! -f .env ]; then
-    echo -e "${RED}Error: .env file not found!${NC}"
-    echo "Please copy .env.example to .env and configure it:"
+    echo -e "${RED}❌ Error: .env file not found!${NC}"
+    echo "Create it from template:"
     echo "  cp .env.example .env"
     echo "  nano .env"
     exit 1
 fi
 
-# Load environment variables
 source .env
 
-# Check required variables
+# Validate required variables
+echo -e "${BLUE}Validating configuration...${NC}"
+
 required_vars=(
     "TELEGRAM_BOT_TOKEN"
     "TON_WALLET_ADDRESS"
@@ -33,20 +34,17 @@ required_vars=(
     "MINI_APP_URL"
 )
 
-missing_vars=0
+missing=0
 for var in "${required_vars[@]}"; do
     if [ -z "${!var}" ]; then
-        echo -e "${RED}Error: $var is not set in .env${NC}"
-        missing_vars=1
+        echo -e "${RED}❌ Missing: $var${NC}"
+        missing=1
     fi
 done
 
-if [ $missing_vars -eq 1 ]; then
-    echo -e "${RED}Please configure all required variables in .env${NC}"
-    exit 1
-fi
+[ $missing -eq 1 ] && echo -e "${RED}Configure missing variables in .env${NC}" && exit 1
 
-echo -e "${GREEN}✓ Environment variables validated${NC}"
+echo -e "${GREEN}✓ Configuration valid${NC}"
 
 # Create necessary directories
 echo "Creating directories..."
