@@ -176,7 +176,7 @@ async function fetchRaffle() {
   } catch (error: any) {
     console.error('Failed to fetch raffle:', error)
     if (error.message !== 'HTTP 404') {
-      telegram?.showAlert('Ошибка загрузки данных')
+      telegram.value?.showAlert('Ошибка загрузки данных')
     }
   } finally {
     loading.value = false
@@ -196,23 +196,23 @@ async function fetchParticipants() {
 async function connectWallet() {
   try {
     await connect()
-    telegram?.showAlert('✅ Кошелек подключен!')
+    telegram.value?.showAlert('✅ Кошелек подключен!')
   } catch (error) {
     console.error('Failed to connect wallet:', error)
-    telegram?.showAlert('Ошибка подключения кошелька')
+    telegram.value?.showAlert('Ошибка подключения кошелька')
   }
 }
 
 async function disconnectWallet() {
   await disconnect()
-  telegram?.showAlert('Кошелек отключен')
+  telegram.value?.showAlert('Кошелек отключен')
 }
 
 async function joinRaffle() {
   if (!raffle.value || !wallet.value) return
 
   isJoining.value = true
-  telegram?.HapticFeedback?.impactOccurred('medium')
+  telegram.value?.HapticFeedback?.impactOccurred('medium')
 
   try {
     const comment = `raffle_${raffle.value.id}_user_${userId.value}`
@@ -233,16 +233,16 @@ async function joinRaffle() {
       wallet_address: wallet.value.account.address
     }, initData.value)
 
-    telegram?.HapticFeedback?.notificationOccurred('success')
-    telegram?.showAlert('✅ Оплата успешна! Вы участвуете в розыгрыше.')
+    telegram.value?.HapticFeedback?.notificationOccurred('success')
+    telegram.value?.showAlert('✅ Оплата успешна! Вы участвуете в розыгрыше.')
 
     await fetchRaffle()
     await fetchParticipants()
 
   } catch (error: any) {
     console.error('Join raffle failed:', error)
-    telegram?.HapticFeedback?.notificationOccurred('error')
-    telegram?.showAlert(`❌ Ошибка: ${error.message || 'Попробуйте снова'}`)
+    telegram.value?.HapticFeedback?.notificationOccurred('error')
+    telegram.value?.showAlert(`❌ Ошибка: ${error.message || 'Попробуйте снова'}`)
   } finally {
     isJoining.value = false
   }
@@ -257,15 +257,15 @@ function formatTime(timestamp: string) {
 }
 
 onMounted(async () => {
-  if (telegram) {
-    telegram.ready()
-    telegram.expand()
-    telegram.enableClosingConfirmation()
+  if (telegram.value) {
+    telegram.value.ready()
+    telegram.value.expand()
+    telegram.value.enableClosingConfirmation()
 
-    if (telegram.BackButton) {
-      telegram.BackButton.show()
-      telegram.BackButton.onClick(() => {
-        telegram.close()
+    if (telegram.value.BackButton) {
+      telegram.value.BackButton.show()
+      telegram.value.BackButton.onClick(() => {
+        telegram.value?.close()
       })
     }
   }
