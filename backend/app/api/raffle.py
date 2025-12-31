@@ -2,8 +2,8 @@ import sys
 from pathlib import Path
 
 # Add bot directory to path to import database models
-# In container: /app/backend/app/api/raffle.py -> ../../../app = /app/app
-bot_path = Path(__file__).parent.parent.parent / "app"
+# In container: /app/app/ contains bot code with database.models
+bot_path = Path(__file__).parent.parent.parent.parent / "app"
 sys.path.insert(0, str(bot_path))
 
 from fastapi import APIRouter, Depends, HTTPException
