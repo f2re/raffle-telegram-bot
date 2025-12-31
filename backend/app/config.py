@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     TON_WALLET_ADDRESS: str
     TON_NETWORK: str = "mainnet"
 
+    # Logging
+    LOG_LEVEL: str = "INFO"
+
     class Config:
         env_file = ".env"
         case_sensitive = True
