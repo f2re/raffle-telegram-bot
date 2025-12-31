@@ -5,7 +5,7 @@ from fastapi import HTTPException, Header
 from typing import Dict, Any
 import json
 
-from app.config import settings
+from backend.app.config import settings
 
 
 def verify_telegram_data(init_data: str) -> Dict[str, Any]:
