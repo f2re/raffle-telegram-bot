@@ -54,16 +54,16 @@ RUN apt-get update && \
 
 # Copy and install Python dependencies
 COPY backend/requirements.txt ./backend/
-COPY requirements.txt ./bot/
+COPY requirements.txt ./
 RUN pip install --no-cache-dir -r backend/requirements.txt && \
-    pip install --no-cache-dir -r bot/requirements.txt && \
+    pip install --no-cache-dir -r requirements.txt && \
     pip install --no-cache-dir 'uvicorn[standard]' websockets
 
 # Copy backend code
 COPY backend/ ./backend/
 
-# Copy bot code
-COPY app/ ./bot/
+# Copy bot code (keep as 'app' to match imports)
+COPY app/ ./app/
 
 # Copy built frontend from stage 1
 COPY --from=frontend-builder /frontend/dist /app/static-built
@@ -82,10 +82,10 @@ RUN chmod +x /docker-entrypoint.sh
 
 # Environment
 ENV PORT=8000
-ENV PYTHONPATH=/app/backend:/app/bot
+ENV PYTHONPATH=/app/backend:/app
 ENV PYTHONUNBUFFERED=1
 
 EXPOSE ${PORT}
 
 ENTRYPOINT ["/docker-entrypoint.sh"]
-CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT} & python -u bot/main.py"]
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT} & python -u app/main.py"]
