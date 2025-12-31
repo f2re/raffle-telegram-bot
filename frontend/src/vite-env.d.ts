@@ -17,3 +17,8 @@ interface ImportMetaEnv {
 interface ImportMeta {
   readonly env: ImportMetaEnv
 }
+
+// Buffer polyfill for TON libraries
+interface Window {
+  Buffer: typeof import('buffer').Buffer
+}
