@@ -1,11 +1,22 @@
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from app.config import settings
+import os
 
 
 def main_menu() -> InlineKeyboardMarkup:
     """Main menu keyboard"""
     builder = InlineKeyboardBuilder()
+
+    # Mini App button (if configured)
+    mini_app_url = os.getenv('MINI_APP_URL')
+    if mini_app_url:
+        builder.row(
+            InlineKeyboardButton(
+                text="🎮 Открыть Mini App",
+                web_app=WebAppInfo(url=mini_app_url)
+            )
+        )
 
     builder.row(
         InlineKeyboardButton(text="🎁 Участвовать в розыгрыше", callback_data="join_raffle")
