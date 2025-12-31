@@ -82,10 +82,10 @@ RUN chmod +x /docker-entrypoint.sh
 
 # Environment
 ENV PORT=8000
-ENV PYTHONPATH=/app/backend:/app
+ENV PYTHONPATH=/app
 ENV PYTHONUNBUFFERED=1
 
 EXPOSE ${PORT}
 
 ENTRYPOINT ["/docker-entrypoint.sh"]
-CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT} & python -u app/main.py"]
+CMD ["sh", "-c", "uvicorn backend.app.main:app --host 0.0.0.0 --port ${PORT} & cd /app && python -u -m app.main"]

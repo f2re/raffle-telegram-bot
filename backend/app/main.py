@@ -5,8 +5,8 @@ from fastapi.middleware.cors import CORSMiddleware
 import os
 from pathlib import Path
 
-from app.config import settings
-from app.api import raffle
+from backend.app.config import settings
+from backend.app.api import raffle
 
 app = FastAPI(
     title="Raffle Bot API",

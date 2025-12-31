@@ -1,12 +1,8 @@
 import sys
 from pathlib import Path
 
-# Add bot directory to path to import existing database models
-bot_path = Path(__file__).parent.parent / "bot"
-sys.path.insert(0, str(bot_path))
-
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from app.config import settings
+from backend.app.config import settings
 
 # Create async engine
 engine = create_async_engine(

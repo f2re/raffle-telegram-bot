@@ -1,8 +1,9 @@
 import sys
 from pathlib import Path
 
-# Add bot directory to path
-bot_path = Path(__file__).parent.parent.parent / "bot"
+# Add bot directory to path to import database models
+# In container: /app/backend/app/api/raffle.py -> ../../../app = /app/app
+bot_path = Path(__file__).parent.parent.parent / "app"
 sys.path.insert(0, str(bot_path))
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -10,14 +11,14 @@ from sqlalchemy import select, func
 from sqlalchemy.orm import joinedload
 from typing import List
 
-from app.api.schemas import (
+from backend.app.api.schemas import (
     RaffleResponse,
     ParticipantResponse,
     JoinRaffleRequest,
     JoinRaffleResponse
 )
-from app.api.dependencies import get_current_user
-from app.database import get_db, AsyncSession
+from backend.app.api.dependencies import get_current_user
+from backend.app.database import get_db, AsyncSession
 from database.models import Raffle, Participant, User, RaffleStatus, Transaction, TransactionType, TransactionStatus, CurrencyType
 
 router = APIRouter(prefix="/raffle", tags=["raffle"])
