@@ -36,8 +36,17 @@ services:
       - raffle_network
 
   bot:
-    build: .
-    container_name: raffle_bot
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      args:
+        CACHEBUST: ${CACHEBUST:-1}
+        VITE_API_URL: ${VITE_API_URL}
+        VITE_WS_URL: ${VITE_WS_URL}
+        VITE_BOT_USERNAME: ${VITE_BOT_USERNAME}
+        VITE_TON_WALLET_ADDRESS: ${VITE_TON_WALLET_ADDRESS}
+        VITE_TON_CONNECT_MANIFEST_URL: ${VITE_TON_CONNECT_MANIFEST_URL}
+    container_name: ${BOT_NAME:-raffle}_bot
     env_file:
       - .env
     depends_on:
@@ -46,12 +55,19 @@ services:
       redis:
         condition: service_healthy
     volumes:
-      - ./app:/app/app
-      - ./migrations:/app/migrations
       - ./logs:/app/logs
+      - ./data:/app/data
+      - ./static:/app/static  # Built frontend served by nginx
+    ports:
+      - "127.0.0.1:${BACKEND_PORT:-8000}:${BACKEND_PORT:-8000}"
     restart: unless-stopped
     networks:
       - raffle_network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "${DOCKER_LOG_MAX_SIZE:-10m}"
+        max-file: "${DOCKER_LOG_MAX_FILE:-3}"
 
 networks:
   raffle_network:
